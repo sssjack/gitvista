@@ -1,0 +1,59 @@
+{
+  "name": "gitvista",
+  "version": "0.2.0",
+  "private": true,
+  "description": "GitVista — 看清每一次变更",
+  "author": "GitVista",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build && node scripts/build-electron.mjs",
+    "start": "electron .",
+    "package": "npm run build && electron-builder --win portable --x64",
+    "package:dir": "npm run build && electron-builder --win --dir --x64"
+  },
+  "dependencies": {
+    "lucide-react": "1.48.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3",
+    "esbuild": "^0.27.0",
+    "playwright": "^1.58.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.0"
+  },
+  "build": {
+    "appId": "cn.gitvista.desktop",
+    "productName": "GitVista",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "assets/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "assets/icon.ico",
+      "signExecutable": false
+    },
+    "portable": {
+      "artifactName": "GitVista-${version}-Windows-x64.exe"
+    }
+  }
+}
