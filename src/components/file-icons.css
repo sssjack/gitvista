@@ -1,0 +1,60 @@
+:root {
+  --git-file-added: #77c992;
+  --git-file-modified: #80afff;
+  --git-file-deleted: #f08e99;
+  --git-file-conflict: #e8bd73;
+  --file-type-blue: #81b4fa;
+  --file-type-yellow: #e9cb72;
+  --file-type-orange: #efb27d;
+  --file-type-green: #79c5a0;
+  --file-type-purple: #c3a7e7;
+  --file-type-red: #ed95a2;
+  --file-type-neutral: #adb6c6;
+}
+:root[data-theme="light"] {
+  --git-file-added: #216c3a;
+  --git-file-modified: #2860b2;
+  --git-file-deleted: #b8394e;
+  --git-file-conflict: #916017;
+  --file-type-blue: #2869b4;
+  --file-type-yellow: #8b670d;
+  --file-type-orange: #a75f24;
+  --file-type-green: #238053;
+  --file-type-purple: #7d52ab;
+  --file-type-red: #b9435c;
+  --file-type-neutral: #68778d;
+}
+:root[data-theme="midnight"] { --git-file-added:#7dcfac; --git-file-modified:#91b7ff; --git-file-deleted:#ef91a6; --git-file-conflict:#e4bb7a; }
+:root[data-theme="nord"] { --git-file-added:#a1ce98; --git-file-modified:#9bc4f5; --git-file-deleted:#f19aa4; --git-file-conflict:#e6c989; }
+:root[data-theme="forest"] { --git-file-added:#8ed3a1; --git-file-modified:#8ebcfc; --git-file-deleted:#f09cac; --git-file-conflict:#e1c584; }
+:root[data-theme="rose"] { --git-file-added:#a4d296; --git-file-modified:#a2bbff; --git-file-deleted:#f397ac; --git-file-conflict:#e4c486; }
+
+.gv-file-icon.gv-file-icon {
+  display:inline-grid; place-items:center; width:var(--file-icon-size,14px); height:var(--file-icon-size,14px);
+  min-width:var(--file-icon-size,14px); flex:0 0 var(--file-icon-size,14px); line-height:1;
+  overflow:visible; vertical-align:middle; color:var(--file-type-neutral); user-select:none;
+}
+.gv-file-icon.gv-file-icon-badge { border-radius:2px; background:color-mix(in srgb,currentColor 13%,transparent); box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 18%,transparent); }
+.gv-file-icon.gv-file-icon-badge > span { font:750 var(--file-icon-font-size,8px)/1 "Segoe UI",sans-serif; letter-spacing:-.35px; color:inherit; }
+.gv-file-icon-java,.gv-file-icon-json { color:var(--file-type-orange) !important; }
+.gv-file-icon-javascript,.gv-file-icon-xml { color:var(--file-type-yellow) !important; }
+.gv-file-icon-typescript,.gv-file-icon-tsx,.gv-file-icon-jsx,.gv-file-icon-markdown,.gv-file-icon-python,.gv-file-icon-sql { color:var(--file-type-blue) !important; }
+.gv-file-icon-vue,.gv-file-icon-shell { color:var(--file-type-green) !important; }
+.gv-file-icon-yaml,.gv-file-icon-image,.gv-file-icon-style,.gv-file-icon-submodule { color:var(--file-type-purple) !important; }
+.gv-file-icon-maven,.gv-file-icon-html { color:var(--file-type-red) !important; }
+.git-file-status.git-file-added { color:var(--git-file-added); }
+.git-file-status.git-file-modified { color:var(--git-file-modified); }
+.git-file-status.git-file-deleted { color:var(--git-file-deleted); }
+.git-file-status.git-file-conflict { color:var(--git-file-conflict); }
+
+.file-tree .file-tree-contents .tree-folder,
+.file-tree .file-tree-contents .tree-file { height:22px; min-height:22px; line-height:22px; padding-top:0; padding-bottom:0; font-size:12px !important; }
+.file-tree .file-tree-contents .tree-file.git-file-added { color:var(--git-file-added); }
+.file-tree .file-tree-contents .tree-file.git-file-modified { color:var(--git-file-modified); }
+.file-tree .file-tree-contents .tree-file.git-file-deleted { color:var(--git-file-deleted); }
+.file-tree .file-tree-contents .tree-file.git-file-conflict { color:var(--git-file-conflict); }
+.file-tree .file-tree-contents .tree-file.git-file-status > .tree-file-name,
+.file-tree .file-tree-contents .tree-file.git-file-status > i { color:inherit; }
+.file-tree .file-tree-contents .tree-file.active { box-shadow:inset 2px 0 var(--accent); }
+.file-tree .file-tree-contents .tree-folder > .tree-folder-icon { color:var(--file-type-yellow); }
+.file-tree .file-tree-contents .tree-file > .gv-file-icon { flex:0 0 var(--file-icon-size,14px); min-width:var(--file-icon-size,14px); }

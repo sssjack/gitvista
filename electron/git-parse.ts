@@ -1,6 +1,6 @@
 import type { GitBranch, GitCommit, GitFile, GitStash, GitTag, GitWorktree } from '../shared/types';
 
-export const COMMIT_FORMAT = '%H%x00%h%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%D%x1e';
+export const COMMIT_FORMAT = '%H%x00%h%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%D%x00%cI%x00%cn%x00%ce%x1e';
 
 export function parseStatus(text: string): { files: GitFile[]; branch: string; upstream: string; ahead: number; behind: number } {
   const records = text.split('\0');
@@ -43,8 +43,8 @@ export function parseStatus(text: string): { files: GitFile[]; branch: string; u
 
 export function parseCommits(text: string): GitCommit[] {
   return text.split('\x1e').map(record => record.replace(/^\n+/, '')).filter(record => record.includes('\0')).map(record => {
-    const [hash, short, parents, author, email, date, subject, refs] = record.split('\0');
-    return { hash, short, parents: parents ? parents.split(' ') : [], author, email, date, subject, refs: refs || '' };
+    const [hash, short, parents, author, email, date, subject, refs, committedDate, committer, committerEmail] = record.split('\0');
+    return { hash, short, parents: parents ? parents.split(' ') : [], author, email, date, subject, refs: refs || '', ...(committedDate ? { committedDate, committer, committerEmail } : {}) };
   });
 }
 
@@ -107,15 +107,20 @@ export function parseNumstat(text: string): { path: string; additions: string; d
   return files;
 }
 
-export function parseNameStatus(text: string): Map<string, string> {
+export function parseNameChanges(text: string): { path: string; oldPath?: string; status: string }[] {
   const parts = text.split('\0');
-  const statuses = new Map<string, string>();
+  const changes: { path: string; oldPath?: string; status: string }[] = [];
   for (let index = 0; index < parts.length;) {
     const status = parts[index++];
     if (!status) continue;
     let filePath = parts[index++] || '';
-    if (status.startsWith('R') || status.startsWith('C')) filePath = parts[index++] || '';
-    statuses.set(filePath, status);
+    let oldPath: string | undefined;
+    if (status.startsWith('R') || status.startsWith('C')) { oldPath = filePath; filePath = parts[index++] || ''; }
+    changes.push({ path: filePath, ...(oldPath ? { oldPath } : {}), status });
   }
-  return statuses;
+  return changes;
+}
+
+export function parseNameStatus(text: string): Map<string, string> {
+  return new Map(parseNameChanges(text).map(file => [file.path, file.status]));
 }

@@ -1,0 +1,18 @@
+/* Code palettes are independent of Git's added/deleted status colors. */
+:root,:root[data-theme="dark"]{--syntax-comment:#929aaa;--syntax-string:#a6cb8c;--syntax-keyword:#c69ce8;--syntax-number:#dfae78;--syntax-type:#72c8c3;--syntax-function:#e4cc87;--syntax-annotation:#d9a7cc;--syntax-property:#a8c5f0;--syntax-constant:#e7a1a5;--syntax-tag:#92b7eb}
+:root[data-theme="light"]{--syntax-comment:#677483;--syntax-string:#357348;--syntax-keyword:#8b3eac;--syntax-number:#945922;--syntax-type:#156f80;--syntax-function:#8c661c;--syntax-annotation:#a0447c;--syntax-property:#2b5d9c;--syntax-constant:#ab424f;--syntax-tag:#326fba}
+:root[data-theme="midnight"]{--syntax-comment:#98a7c1;--syntax-string:#acd994;--syntax-keyword:#cfa6f8;--syntax-number:#ffc488;--syntax-type:#6bd6d2;--syntax-function:#f4dd99;--syntax-annotation:#edb1d5;--syntax-property:#a8c9ff;--syntax-constant:#ffb0ac;--syntax-tag:#a4bcff}
+:root[data-theme="nord"]{--syntax-comment:#a5afbd;--syntax-string:#b4d59d;--syntax-keyword:#d4abe4;--syntax-number:#ebc292;--syntax-type:#93d3d8;--syntax-function:#f0d797;--syntax-annotation:#e4b7cd;--syntax-property:#b1c9ee;--syntax-constant:#e9a5ad;--syntax-tag:#95c4e2}
+:root[data-theme="forest"]{--syntax-comment:#98ada4;--syntax-string:#b1cc84;--syntax-keyword:#d0a1dc;--syntax-number:#e6b77c;--syntax-type:#79d1be;--syntax-function:#e4d391;--syntax-annotation:#e0acc6;--syntax-property:#a1c9ef;--syntax-constant:#e9a2a0;--syntax-tag:#a0cbbb}
+:root[data-theme="rose"]{--syntax-comment:#b4a0af;--syntax-string:#b6d196;--syntax-keyword:#e3abe8;--syntax-number:#edbc91;--syntax-type:#8dd0cc;--syntax-function:#ebd291;--syntax-annotation:#f0abc9;--syntax-property:#b3c5f1;--syntax-constant:#f3a6ae;--syntax-tag:#d0b0f2}
+.syntax-token.syntax-comment{color:var(--syntax-comment);font-style:italic}
+.syntax-token.syntax-string{color:var(--syntax-string)}
+.syntax-token.syntax-keyword{color:var(--syntax-keyword)}
+.syntax-token.syntax-number{color:var(--syntax-number)}
+.syntax-token.syntax-type{color:var(--syntax-type)}
+.syntax-token.syntax-function{color:var(--syntax-function)}
+.syntax-token.syntax-annotation{color:var(--syntax-annotation)}
+.syntax-token.syntax-property{color:var(--syntax-property)}
+.syntax-token.syntax-constant{color:var(--syntax-constant)}
+.syntax-token.syntax-tag{color:var(--syntax-tag)}
+.syntax-limit-note{padding:8px 12px;color:var(--text-muted);font-size:11px}
