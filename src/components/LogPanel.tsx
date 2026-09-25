@@ -5,10 +5,14 @@ import type { GitCommit, GitLogOptions, GitLogResult, GitSnapshot } from '../../
 import CommitGraph from './CommitGraph';
 import { buildCommitGraph } from '../lib/commit-graph';
 import { useI18n } from '../lib/i18n';
+import ResizeHandle from './ResizeHandle';
+import { clampColumnWidth, LOG_COLUMN_LIMITS, LOG_COLUMNS_KEY, readLogColumnWidths } from '../lib/log-columns';
+import type { LogColumn } from '../lib/log-columns';
 
 export type LogCommand = { kind: 'branch' | 'locate'; value: string; id: number };
 type ViewOptions = { author: boolean; date: boolean; hash: boolean; compactRefs: boolean; tagNames: boolean; refsRight: boolean; commitDate: boolean };
 const DEFAULT_VIEW: ViewOptions = { author: true, date: true, hash: true, compactRefs: true, tagNames: true, refsRight: false, commitDate: false };
+const LOG_ROW_HEIGHT = 30;
 const EMPTY_FILTER: GitLogOptions = { text: '', branch: '', author: '', since: '', until: '', paths: [], regex: false, matchCase: false, order: 'topo', firstParent: false, noMerges: false };
 
 function snapshotLogResult(snapshot: GitSnapshot, filter: GitLogOptions): GitLogResult | null {
@@ -39,6 +43,8 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString(locale, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
   }, [locale]);
   const [view, setView] = useState(readView);
+  const [columnWidths, setColumnWidths] = useState(readLogColumnWidths);
+  const [viewportWidth, setViewportWidth] = useState(0);
   const [result, setResult] = useState<GitLogResult>(() => snapshotLogResult(snapshot, EMPTY_FILTER) || { commits: [], hasMore: false, nextSkip: 0 });
   const [loading, setLoading] = useState(false); const [error, setError] = useState(''); const [authors, setAuthors] = useState<string[]>([]);
   const [menu, setMenu] = useState<'sort' | 'view' | 'date' | 'paths' | 'more' | null>(null);
@@ -48,10 +54,23 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
   const resetRepoRef = useRef(repo); const debounceRef = useRef(false);
   const authorsRequest = useRef<{ repo: string; commits: GitCommit[]; pending: boolean; loaded: boolean } | null>(null);
   const rootRef = useRef<HTMLElement>(null); const headRef = useRef<HTMLDivElement>(null); const api = window.gitvista;
+  const scrollRef = useRef<HTMLDivElement>(null);
   const updateFilter = (patch: Partial<GitLogOptions>, typing = false) => { ++locateId.current; ++requestId.current; debounceRef.current = typing; setLocating(false); setFilter(current => ({ ...current, ...patch })); };
   const resetFilter = () => { ++locateId.current; ++requestId.current; debounceRef.current = false; setLocating(false); setFilter({ ...EMPTY_FILTER }); setPathText(''); };
 
   useEffect(() => { try { localStorage.setItem('gitvista.logView', JSON.stringify(view)); } catch { /* Display preferences are optional on read-only profiles. */ } }, [view]);
+  useEffect(() => {
+    const timer = setTimeout(() => { try { localStorage.setItem(LOG_COLUMNS_KEY, JSON.stringify(columnWidths)); } catch { /* Resizing still works when preferences cannot be saved. */ } }, 200);
+    return () => clearTimeout(timer);
+  }, [columnWidths]);
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const measure = () => setViewportWidth(scroller.clientWidth);
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller); measure();
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     if (resetRepoRef.current === repo) return;
     resetRepoRef.current = repo; debounceRef.current = false; authorsRequest.current = null; ++requestId.current; ++locateId.current;
@@ -115,11 +134,27 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
   const graphFiltered = !!(filter.text || filter.author || filter.since || filter.until || filter.paths?.length || filter.firstParent || filter.noMerges);
   const graph = useMemo(() => buildCommitGraph(
     filter.firstParent ? commits.map(commit => ({ ...commit, parents: commit.parents.slice(0, 1) })) : commits,
-    { rowHeight: 46, laneWidth: 22, padding: 10, reserveMissingParents: !graphFiltered },
+    { rowHeight: LOG_ROW_HEIGHT, laneWidth: 22, padding: 10, reserveMissingParents: !graphFiltered },
   ), [commits, filter.firstParent, graphFiltered]);
-  const width = Math.max(64, graph.width);
-  const columns = `${width}px minmax(140px,1fr)${view.author ? ' 95px' : ''}${view.date ? ' 104px' : ''}${view.hash ? ' 68px' : ''}`;
-  const tableStyle = { '--log-columns': columns, '--log-min-width': `${width + 160 + (view.author ? 95 : 0) + (view.date ? 104 : 0) + (view.hash ? 68 : 0)}px` } as React.CSSProperties;
+  const defaults: Record<LogColumn, number> = { graph: Math.max(64, graph.width), subject: 140, author: 95, date: 104, hash: 68 };
+  const widths = { ...defaults, ...columnWidths };
+  const visibleColumns: LogColumn[] = ['graph', 'subject', ...(view.author ? ['author' as const] : []), ...(view.date ? ['date' as const] : []), ...(view.hash ? ['hash' as const] : [])];
+  const columns = visibleColumns.map(key => key === 'subject' && columnWidths.subject === undefined ? 'minmax(140px,1fr)' : `${widths[key]}px`).join(' ');
+  const tableStyle = { '--log-columns': columns + (columnWidths.subject === undefined ? '' : ' minmax(0,1fr)'), '--log-min-width': `${20 + visibleColumns.reduce((total, key) => total + widths[key], 0)}px`, '--log-graph-width': `${widths.graph}px` } as React.CSSProperties;
+  const resizeColumn = (column: LogColumn, delta: number) => {
+    const subjectWidth = headRef.current?.querySelector<HTMLElement>('[data-log-column="subject"]')?.getBoundingClientRect().width || defaults.subject;
+    // Freeze the flexible Subject column on the first resize so the divider
+    // follows the pointer instead of being cancelled out by flex redistribution.
+    setColumnWidths(current => ({ ...current, subject: current.subject ?? Math.round(subjectWidth), [column]: clampColumnWidth(column, (current[column] ?? (column === 'subject' ? subjectWidth : defaults[column])) + delta) }));
+  };
+  const resetColumn = (column: LogColumn) => setColumnWidths(current => { const next = { ...current }; delete next[column]; return next; });
+  const columnLabels: Record<LogColumn, string> = { graph: t('分支图'), subject: t('提交说明列'), author: t('作者'), date: view.commitDate ? t('提交时间列') : t('创作时间列'), hash: t('提交列') };
+  const header = (column: LogColumn) => <div className="log-column-header" data-log-column={column} key={column}>
+    <span title={column === 'graph' ? t('双圈为合并提交；实线连接真实父提交；短虚线表示父提交在当前列表外') : columnLabels[column]}>{columnLabels[column]}</span>
+    <ResizeHandle direction="vertical" label={t('调整{0}列宽', columnLabels[column])} title={t('拖动调整列宽；双击恢复默认；方向键微调')}
+      value={column === 'subject' && columnWidths.subject === undefined ? Math.max(140, viewportWidth - 20 - visibleColumns.filter(key => key !== 'subject').reduce((total, key) => total + widths[key], 0)) : widths[column]}
+      min={LOG_COLUMN_LIMITS[column].min} max={LOG_COLUMN_LIMITS[column].max} onResize={delta => resizeColumn(column, delta)} onReset={() => resetColumn(column)} />
+  </div>;
   const parentSelect = (hash: string, missing: boolean) => {
     if (blocked || busy) return;
     if (missing) void locate(hash);
@@ -142,7 +177,7 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
       {view.date && <span className="commit-date" title={date}>{shortDate(date)}</span>}{view.hash && <span className="commit-hash" title={commit.hash}>{commit.short}</span>}
     </button>;
   };
-  return <section className="history-panel log-panel" ref={rootRef} aria-label={t('Git 日志')}>
+  return <section className="history-panel log-panel" ref={rootRef} aria-label={t('Git 日志')} style={{ '--log-row-height': `${LOG_ROW_HEIGHT}px` } as React.CSSProperties}>
     <div className="panel-heading"><div className="panel-tab"><History size={15} />{t('提交历史')}<span>{commits.length}</span></div><div className="panel-heading-actions">
       <button type="button" className="icon-button" aria-label={t('加速日志查询')} title={`${t('加速日志查询')} · ${t('生成 Git 原生 commit-graph 缓存')}`} onClick={() => tool('writeCommitGraph')} disabled={busy}><Zap size={14} /></button>
       {iconButton('拣选选中提交', <GitCommitHorizontal size={15} />, () => tool('cherryPick'), !selected || busy || inCurrentBranch !== false)}
@@ -162,6 +197,7 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
     {menu && <div className={`log-popover log-popover-${menu}`} role="dialog" aria-label={menu === 'view' ? t('日志显示选项') : menu === 'sort' ? t('日志排序与合并过滤') : menu === 'date' ? t('日志日期筛选') : menu === 'paths' ? t('日志路径筛选') : t('选中提交')}>
       <div className="log-popover-title"><span>{menu === 'view' ? t('显示选项') : menu === 'sort' ? t('排序与过滤') : menu === 'date' ? t('按提交日期筛选') : menu === 'paths' ? t('限定文件或目录') : t('选中提交')}</span>{iconButton('关闭日志菜单', <X size={13} />, () => setMenu(null))}</div>
       {menu === 'view' && (Object.entries({ author: '显示作者列', date: '显示日期列', hash: '显示哈希列', compactRefs: '紧凑显示引用', tagNames: '显示标签名称', refsRight: '引用显示在说明右侧', commitDate: '显示提交时间（默认创作时间）' }) as [keyof ViewOptions, string][]).map(([key, label]) => <label className="log-check" key={key}><input type="checkbox" checked={view[key]} onChange={e => setView(current => ({ ...current, [key]: e.target.checked }))} />{t(label)}</label>)}
+      {menu === 'view' && <button className="log-menu-item" disabled={!Object.keys(columnWidths).length} onClick={() => setColumnWidths({})}>{t('重置列宽')}</button>}
       {menu === 'sort' && <><label className="log-check"><input type="radio" name="log-sort" checked={filter.order === 'topo'} onChange={() => updateFilter({ order: 'topo' })} />{t('拓扑排序 · 保持分支相邻')}</label><label className="log-check"><input type="radio" name="log-sort" checked={filter.order === 'date'} onChange={() => updateFilter({ order: 'date' })} />{t('日期排序 · 按提交时间')}</label><hr /><label className="log-check"><input type="checkbox" checked={!!filter.firstParent} onChange={e => updateFilter({ firstParent: e.target.checked })} />{t('仅第一父提交')}</label><label className="log-check"><input type="checkbox" checked={!!filter.noMerges} onChange={e => updateFilter({ noMerges: e.target.checked })} />{t('隐藏合并提交')}</label></>}
       {menu === 'date' && <><label className="form-field"><span>{t('开始日期（含）')}</span><input type="date" aria-label={t('开始日期（含）')} value={filter.since || ''} onChange={e => updateFilter({ since: e.target.value })} /></label><label className="form-field"><span>{t('结束日期（含）')}</span><input type="date" aria-label={t('结束日期（含）')} value={filter.until || ''} onChange={e => updateFilter({ until: e.target.value })} /></label><button className="text-button" onClick={() => updateFilter({ since: '', until: '' })}>{t('清除日期')}</button></>}
       {menu === 'paths' && <form onSubmit={e => { e.preventDefault(); updateFilter({ paths: pathText.split(/\r?\n/).map(path => path.trim()).filter(Boolean) }); setMenu(null); }}><p>{t('每行一个仓库相对路径，文件夹会包含其下文件。')}</p><textarea aria-label={t('日志路径列表')} placeholder={'src/\nREADME.md'} value={pathText} onChange={e => setPathText(e.target.value)} /><div className="log-popover-actions"><button type="button" onClick={() => { setPathText(''); updateFilter({ paths: [] }); setMenu(null); }}>{t('清除')}</button><button className="primary-button" type="submit"><Check size={12} />{t('应用路径')}</button></div></form>}
@@ -169,9 +205,9 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
     </div>}
     {error && <div className="log-error" role="alert">{error}</div>}
     <div className="log-graph-help"><span><i className="graph-key-node" />{t('提交节点图例')}</span><span><i className="graph-key-edge" />{t('父提交图例')}</span><span title={t('父提交在当前列表外')}>{t('列表外')}</span></div>
-    <div className="log-head-scroll" ref={headRef}><div className="commit-table-head log-table-head" style={tableStyle}><span title={t('双圈为合并提交；实线连接真实父提交；短虚线表示父提交在当前列表外')}>{t('分支图')}</span><span>{t('提交说明列')}</span>{view.author && <span>{t('作者')}</span>}{view.date && <span>{view.commitDate ? t('提交时间列') : t('创作时间列')}</span>}{view.hash && <span>{t('提交列')}</span>}</div></div>
-    <div className="commit-scroll" aria-busy={loading} onScroll={event => { if (headRef.current) headRef.current.scrollLeft = event.currentTarget.scrollLeft; }}>
-      {!!commits.length && <div className="log-rows" style={tableStyle}>{commits.map(commit => row(commit))}<CommitGraph graph={graph} commits={commits} selected={selected} disabled={blocked || busy || loading} onSelect={onSelect} onParent={parentSelect} onContext={hash => { onSelect(hash); setMenu('more'); }} /></div>}
+    <div className="log-head-scroll" ref={headRef} style={{ width: viewportWidth || undefined }} onScroll={event => { if (scrollRef.current && scrollRef.current.scrollLeft !== event.currentTarget.scrollLeft) scrollRef.current.scrollLeft = event.currentTarget.scrollLeft; }}><div className="commit-table-head log-table-head" style={tableStyle}>{visibleColumns.map(header)}</div></div>
+    <div className="commit-scroll" ref={scrollRef} aria-busy={loading} onScroll={event => { if (headRef.current && headRef.current.scrollLeft !== event.currentTarget.scrollLeft) headRef.current.scrollLeft = event.currentTarget.scrollLeft; }}>
+      {!!commits.length && <div className="log-rows" style={tableStyle}>{commits.map(commit => row(commit))}<div className="log-graph-viewport"><CommitGraph graph={graph} commits={commits} selected={selected} disabled={blocked || busy || loading} onSelect={onSelect} onParent={parentSelect} onContext={hash => { onSelect(hash); setMenu('more'); }} /></div></div>}
       {!commits.length && !loading && <div className="empty-state"><History size={27} /><strong>{filtered ? t('没有匹配的提交') : t('还没有提交')}</strong><p>{filtered ? t('调整筛选条件；搜索会查询仓库历史，而不局限于已加载记录。') : t('提交工作区更改后，历史会显示在这里。')}</p></div>}{loading && !commits.length && <div className="inline-loading"><Loader2 size={17} className="spin" />{t('查询仓库历史…')}</div>}{result.hasMore && <button className="load-more" disabled={loading} onClick={() => void loadMore()}>{t('加载更多提交')}</button>}
     </div>
     <div className="history-bottom"><span>{loading ? <Loader2 size={11} className="spin" /> : <span className="live-dot" />}{commits.length} {t('条提交')}{filtered && ` · ${t('已筛选')}`}{result.hasMore && ` · ${t('还有更多')}`}</span><span>{filter.branch || t('所有分支')} · {filter.order === 'date' ? t('日期排序') : t('拓扑排序')}</span></div>

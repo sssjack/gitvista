@@ -25,6 +25,16 @@ export interface AppSettings extends AppPreferences { repos: RepoEntry[]; lastRe
 export interface IdentityFields { name: string; email: string }
 export interface GitIdentity { local: IdentityFields; global: IdentityFields; effective: IdentityFields }
 export interface GitIdentityUpdate extends IdentityFields { scope: 'local' | 'global' }
+export interface RepositoryCredentials { username: string; secret: string }
+export interface DesktopState { mode: 'main' | 'mini'; collapsed: boolean; expanded: boolean; direction: 'left' | 'right'; edge: 'left' | 'right' | 'top' | 'bottom' | null; frame: MiniFrame; repo: string; commits: GitCommit[]; busy: boolean; error: string; language: AppLanguage; theme: AppTheme }
+export type DesktopCommand = 'mini' | 'tray' | 'restore' | 'refresh' | 'pull' | 'latest' | 'quit' | 'expand';
+export interface MiniFrame { x: number; y: number; width: number; height: number }
+export interface MiniBarApi {
+  desktopState(): Promise<DesktopState>;
+  desktopCommand(command: DesktopCommand): Promise<void>;
+  onDesktopState(listener: (state: DesktopState) => void): () => void;
+  onFrame(listener: (frame: MiniFrame) => void): () => void;
+}
 export interface GitVistaApi {
   settings(): Promise<AppSettings>;
   setTheme(theme: AppTheme): Promise<void>;
@@ -35,7 +45,13 @@ export interface GitVistaApi {
   setGitIdentity(repo: string, identity: GitIdentityUpdate): Promise<GitIdentity>;
   openRepository(path?: string): Promise<RepoEntry | null>;
   forgetRepository(path: string): Promise<void>;
-  cloneRepository(url: string, parent?: string, name?: string): Promise<RepoEntry | null>;
+  cloneRepository(url: string, parent?: string, name?: string, credentials?: RepositoryCredentials): Promise<RepoEntry | null>;
+  chooseDirectory(): Promise<string | null>;
+  setRepositoryCredentials(repo: string, remote: string, credentials: RepositoryCredentials | null): Promise<void>;
+  desktopState(): Promise<DesktopState>;
+  desktopCommand(command: DesktopCommand): Promise<void>;
+  onDesktopState(listener: (state: DesktopState) => void): () => void;
+  onRepositoryRefresh(listener: () => void): () => void;
   initRepository(path?: string): Promise<RepoEntry | null>;
   query<T = unknown>(repo: string, query: GitQuery): Promise<T>;
   action(repo: string, action: GitAction): Promise<ActionResult>;
@@ -43,6 +59,6 @@ export interface GitVistaApi {
   revealPath(repo: string, relative?: string): Promise<void>;
   windowControl(action: 'minimize' | 'maximize' | 'close'): void;
 }
-declare global { interface Window { gitvista: GitVistaApi } }
+declare global { interface Window { gitvista: GitVistaApi; gitvistaMini: MiniBarApi } }
 
 export interface PushPreview { branch: string; remote: string; target: string; head: string; base: string; commits: GitCommit[]; files: { path: string; status: string }[]; total: number; }

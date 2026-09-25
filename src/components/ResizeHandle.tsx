@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 
-export default function ResizeHandle({ direction, onResize, onReset, label = '调整面板大小' }: {
+export default function ResizeHandle({ direction, onResize, onReset, label = '调整面板大小', title, value, min, max }: {
   direction: 'vertical' | 'horizontal'; onResize: (delta: number) => void; onReset?: () => void; label?: string;
+  title?: string; value?: number; min?: number; max?: number;
 }) {
   const [dragging, setDragging] = useState(false);
   const last = useRef<number | null>(null);
@@ -9,7 +10,7 @@ export default function ResizeHandle({ direction, onResize, onReset, label = '�
   const finish = () => { last.current = null; setDragging(false); cleanup.current?.(); cleanup.current = undefined; };
   useEffect(() => () => cleanup.current?.(), []);
   return <div className={`resize-handle ${direction} ${dragging ? 'dragging' : ''}`} role="separator" tabIndex={0}
-    aria-label={label} aria-orientation={direction} title={`${label} · 拖动或方向键调整，双击恢复默认`}
+    aria-label={label} aria-orientation={direction} aria-valuenow={value} aria-valuemin={min} aria-valuemax={max} title={title ?? `${label} · 拖动或方向键调整，双击恢复默认`}
     onDoubleClick={onReset} onKeyDown={event => {
       const negative = direction === 'vertical' ? 'ArrowLeft' : 'ArrowUp';
       const positive = direction === 'vertical' ? 'ArrowRight' : 'ArrowDown';

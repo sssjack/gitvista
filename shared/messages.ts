@@ -5,8 +5,10 @@
  * 这样新增或遗漏的文案会自动回退到中文，不会因为忘了登记而显示成键名。
  */
 import type { AppLanguage } from './types';
+import { ADDITIONAL_EN } from './additional-messages';
 
 const EN: Record<string, string> = {
+  ...ADDITIONAL_EN,
   // ===== 通用 =====
   '关闭': 'Close', '取消': 'Cancel', '保存': 'Save', '刷新': 'Refresh', '搜索': 'Search', '删除': 'Delete',
   '确定': 'OK', '执行操作': 'Run', '查看': 'View', '应用': 'Apply', '清除': 'Clear', '复制': 'Copy',

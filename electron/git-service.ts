@@ -1,4 +1,6 @@
 import { resolveGit, gitEnvironment } from './git-runtime';
+import { credentialUrl, validateCredentials, withCredentials, type ScopedCredential } from './git-credentials';
+import type { RepositoryCredentials } from '../shared/types';
 import { spawn } from 'node:child_process';
 import { isUtf8 } from 'node:buffer';
 import { promises as fs } from 'node:fs';
@@ -19,7 +21,7 @@ let gitExecutable = 'git';
 let versionCache: { executable: string; value: Promise<string> } | undefined;
 const GLOBAL_ARGS = ['--no-pager', '--literal-pathspecs', '-c', 'color.ui=false', '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false', '-c', 'credential.interactive=false'];
 
-interface RunOptions { input?: string; timeout?: number; allowCodes?: number[]; maxOutput?: number; requireUtf8?: boolean; executable?: string }
+interface RunOptions { input?: string; timeout?: number; allowCodes?: number[]; maxOutput?: number; requireUtf8?: boolean; executable?: string; credentials?: ScopedCredential[]; configArgs?: string[]; env?: NodeJS.ProcessEnv; redact?: (text: string) => string }
 interface RunResult { stdout: string; stderr: string; code: number }
 
 function cleanError(value: string): string {
@@ -27,13 +29,21 @@ function cleanError(value: string): string {
 }
 
 function run(cwd: string, args: string[], options: RunOptions = {}): Promise<RunResult> {
+  if (['clone', 'fetch', 'pull', 'push'].includes(args[0])) {
+    return withCredentials(options.credentials, (configArgs, env, redact) => executeRun(cwd, args, { ...options, configArgs, env, redact }));
+  }
+  return executeRun(cwd, args, options);
+}
+function executeRun(cwd: string, args: string[], options: RunOptions): Promise<RunResult> {
+  const redact = options.redact || ((value: string) => value);
   return new Promise((resolve, reject) => {
-    const child = spawn(options.executable || gitExecutable, [...GLOBAL_ARGS, ...args], {
+    const child = spawn(options.executable || gitExecutable, [...GLOBAL_ARGS, ...(options.configArgs || []), ...args], {
       cwd, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...gitEnvironment(options.executable || gitExecutable), LC_ALL: 'C', LANG: 'C', GIT_TERMINAL_PROMPT: '0',
         GCM_INTERACTIVE: 'Never', GIT_OPTIONAL_LOCKS: '0', GIT_EDITOR: 'true', GIT_SEQUENCE_EDITOR: 'true',
         GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND || 'ssh -o BatchMode=yes',
+        ...options.env,
       },
     });
     const stdout: Buffer[] = [];
@@ -59,7 +69,7 @@ function run(cwd: string, args: string[], options: RunOptions = {}): Promise<Run
       clearTimeout(timer);
       reject(new Error((error as NodeJS.ErrnoException).code === 'ENOENT'
         ? '未找到 Git，请在设置中选择有效的 git.exe，或将 Git 加入 PATH。'
-        : `无法启动 Git：${cleanError(error.message)}`));
+        : `无法启动 Git：${cleanError(redact(error.message))}`));
     });
     child.stdin.on('error', () => { /* Git 可能在读取输入前退出，实际错误由 close 处理。 */ });
     child.on('close', code => {
@@ -70,7 +80,7 @@ function run(cwd: string, args: string[], options: RunOptions = {}): Promise<Run
         reject(new Error('此文件不是有效的 UTF-8 文本，请使用支持原始编码的外部编辑器，避免保存时破坏内容。'));
         return;
       }
-      const result = { stdout: rawOutput.toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8'), code: code ?? -1 };
+      const result = { stdout: redact(rawOutput.toString('utf8')), stderr: redact(Buffer.concat(stderr).toString('utf8')), code: code ?? -1 };
       if (result.code !== 0 && !(options.allowCodes || []).includes(result.code)) {
         const detail = cleanError(result.stderr || result.stdout);
         if (/(?:unable to read tree|bad tree object|missing (?:tree|blob) object)/i.test(detail)) {
@@ -924,8 +934,20 @@ export async function openRepository(directory: string): Promise<RepoEntry> {
   return { path: repo, name: path.basename(repo), lastOpened: new Date().toISOString() };
 }
 
-export async function cloneRepository(url: string, parent: string, name?: string): Promise<RepoEntry> {
+export async function credentialRemoteUrls(directory: string, remote: string): Promise<string[]> {
+  const repo = await rootOf(directory);
+  const name = await knownRemote(repo, remote);
+  const urls = await Promise.all([
+    output(repo, ['remote', 'get-url', '--all', name]),
+    output(repo, ['remote', 'get-url', '--push', '--all', name]),
+  ]);
+  return [...new Set(urls.flatMap(value => value.trim().split(/\r?\n/)).filter(Boolean))];
+}
+
+export async function cloneRepository(url: string, parent: string, name?: string, credentials?: RepositoryCredentials): Promise<RepoEntry> {
   const source = remoteUrl(url);
+  const scoped = credentials ? [{ url: credentialUrl(source), ...validateCredentials(credentials) }] : undefined;
+  if (/^https?:\/\//i.test(source)) { const parsed = new URL(source); if (parsed.username || parsed.password) throw new Error('Enter credentials in the authentication fields, not in the repository URL.'); }
   const parentPath = await externalDirectory(parent);
   if (!(await fs.stat(parentPath)).isDirectory()) throw new Error('请选择有效的父目录。');
   const folder = name?.trim() || source.replace(/[\\/]$/, '').split(/[/:]/).pop()?.replace(/\.git$/, '') || 'repository';
@@ -934,7 +956,7 @@ export async function cloneRepository(url: string, parent: string, name?: string
   await noSymlink(target);
   await ensureEmptyTarget(target);
   return serialized(target, async () => {
-    await run(parentPath, ['clone', '--progress', '--', source, target], { timeout: NETWORK_TIMEOUT });
+    await run(parentPath, ['clone', '--progress', '--', source, target], { timeout: NETWORK_TIMEOUT, credentials: scoped });
     return openRepository(target);
   });
 }

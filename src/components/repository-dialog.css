@@ -1,0 +1,9 @@
+.repository-dialog { width: 600px; max-height: 90vh; overflow-y: auto; }
+.repository-dialog-heading, .repository-dialog-heading > div { display: flex; align-items: center; gap: 12px; }
+.repository-dialog-heading { justify-content: space-between; margin-bottom: 12px; }
+.repository-dialog-heading h2 { margin: 0; }
+.repository-path { display: flex; gap: 8px; }
+.repository-path input { flex: 1; min-width: 0; }
+.repository-auth-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.repository-destination { font-size: 12px; overflow-wrap: anywhere; color: var(--text-muted); }
+.repository-destination code { display: block; padding-top: 6px; color: var(--text); }

@@ -1,0 +1,31 @@
+.mini-window, .mini-window body, .mini-window #root { background: transparent; }
+.mini-bar { position: absolute; left: var(--mini-x, 0px); top: var(--mini-y, 0px); width: var(--mini-width, 100vw); height: var(--mini-height, 100vh); display: flex; align-items: center; box-sizing: border-box; border-radius: 999px; background: var(--panel, #17191d); color: var(--text); overflow: hidden; user-select: none; box-shadow: inset 0 0 0 1px var(--border); }
+.mini-controls { width: 128px; min-width: 128px; height: 40px; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 9px; margin-left: auto; box-sizing: border-box; transition: opacity 160ms ease, transform 240ms ease; }
+.mini-grip { width: 14px; height: 100%; display: grid; place-items: center; flex-shrink: 0; color: var(--text-muted); -webkit-app-region: drag; }
+.mini-content { flex: 1; min-width: 0; max-width: 0; opacity: 0; overflow: hidden; -webkit-app-region: drag; transition: opacity 180ms ease, transform 240ms ease; transform: translateX(10px); }
+.is-expanded .mini-content { max-width: none; padding: 0 0 0 14px; opacity: 1; transform: translateX(0); }
+.direction-right .mini-controls { order: -1; margin-left: 0; margin-right: auto; }
+.direction-right.is-expanded .mini-content { padding: 0 14px 0 0; }
+.mini-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; color: var(--text-muted); font-size: 9px; white-space: nowrap; }
+.mini-meta strong { max-width: 132px; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-size: 10px; }
+.mini-live { width: 4px; height: 4px; background: #6aab73; border-radius: 50%; flex-shrink: 0; }
+.mini-subject { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 14px; }
+.mini-error { color: #e58f8f; }
+.mini-actions { display: flex; gap: 1px; -webkit-app-region: no-drag; }
+.mini-actions button { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; background: transparent; border: 0; color: var(--text-muted); border-radius: 50%; }
+.mini-actions button + button { margin-left: 1px; }
+.mini-actions button:hover { background: var(--hover, #292c34); color: var(--text); }
+.mini-actions button:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.mini-actions button:disabled { opacity: .4; }
+.is-collapsed .mini-controls, .is-collapsed .mini-content { opacity: 0; pointer-events: none; transform: translateX(30px); }
+.is-collapsed.edge-left .mini-controls, .is-collapsed.edge-left .mini-content { transform: translateX(-30px); }
+.is-collapsed.edge-top .mini-controls, .is-collapsed.edge-top .mini-content { transform: translateY(-20px); }
+.is-collapsed.edge-bottom .mini-controls, .is-collapsed.edge-bottom .mini-content { transform: translateY(20px); }
+.is-collapsed .mini-grip, .is-collapsed .mini-content { -webkit-app-region: no-drag; }
+.mini-edge { position: absolute; inset: 0 auto 0 0; width: 6px; height: 100%; padding: 0; display: grid; place-items: center; border: 0; background: var(--accent, #6f9fd8); cursor: pointer; -webkit-app-region: no-drag; animation: mini-edge-in 240ms ease both; }
+.mini-edge span { width: 2px; height: 16px; border-radius: 2px; background: #fff9; }
+.edge-right .mini-edge { left: auto; right: 0; }
+.edge-top .mini-edge, .edge-bottom .mini-edge { width: 100%; height: 6px; }
+.edge-bottom .mini-edge { top: auto; bottom: 0; }
+.edge-top .mini-edge span, .edge-bottom .mini-edge span { width: 20px; height: 2px; }
+@keyframes mini-edge-in { from { opacity: 0; } to { opacity: 1; } }

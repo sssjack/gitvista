@@ -89,3 +89,39 @@
 .theme-option-swatch > i:first-child { grid-row: 1 / 3; }
 @media(max-width:1250px) { .repo-control .repo-picker { width: 135px; } .branch-control .branch-picker { width: 120px; } .theme-control .theme-picker { width: 100px; } }
 @media(max-width:1050px) { .repo-control .repo-picker { width: 105px; } .branch-control .branch-picker { width: 100px; } }
+/* Language remains visible even when the repository toolbar is crowded. */
+.titlebar-language { display: flex; align-items: center; gap: 5px; margin-left: auto; -webkit-app-region: no-drag; color: var(--text-muted); }
+.titlebar-language .language-picker { width: 100px; }
+.titlebar-language .select-trigger { min-height: 26px; height: 26px; font-size: 11px; border-color: transparent; background: transparent; }
+.window-controls { -webkit-app-region: no-drag; }
+
+.workbench-host { height: 100%; }
+
+/* Keep the header and commit rows on the same user-controlled column grid. */
+.log-panel .log-table-head, .log-panel .log-commit-row { grid-template-columns: var(--log-columns) !important; }
+.log-panel .log-head-scroll { margin-right: 0; max-width: 100%; }
+.log-column-header { position: relative; min-width: 0; min-height: 29px; height: 100%; display: flex; align-items: center; padding-right: 8px; }
+.log-column-header:first-child { padding-left: 5px; }
+.log-column-header > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-column-header .resize-handle.vertical { position: absolute; right: -4px; top: 0; bottom: 0; width: 8px; margin: 0; background: transparent; opacity: 1; }
+.log-column-header .resize-handle.vertical::after { inset: 0; }
+.log-column-header .resize-handle.vertical::before { content: ''; position: absolute; left: 3px; top: 7px; bottom: 7px; width: 1px; background: var(--border); }
+.log-column-header .resize-handle:is(:hover, .dragging, :focus-visible) { background: var(--accent-bg); }
+.log-column-header .resize-handle:is(:hover, .dragging, :focus-visible)::before { background: var(--accent); }
+.log-column-header .resize-handle:focus-visible { outline: 1px solid var(--accent); }
+.log-panel .log-commit-row > .commit-date { display: block; min-width: 0; padding-right: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-graph-viewport { position: absolute; left: 10px; top: 0; width: var(--log-graph-width); height: 100%; overflow: hidden; pointer-events: none; }
+.log-graph-viewport > .interactive-commit-graph { left: 0; }
+
+/* One line per file; retain the directory beside the name and full path tooltip. */
+.changes-panel .changes-branch { height: 30px; min-height: 30px; }
+.changes-panel .change-group-title { min-height: 28px; }
+.changes-panel .change-row { height: 28px; min-height: 28px; gap: 6px; }
+.changes-panel .change-file { height: 28px; padding: 0; gap: 6px; }
+.changes-panel .change-file-info { display: flex; align-items: baseline; gap: 8px; flex: 1; }
+.changes-panel .change-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.changes-panel .change-file small { flex: 0 2 auto; min-width: 0; max-width: 45%; margin-top: 0; line-height: 1.3; }
+.changes-panel .change-group .staging-placeholder { flex-direction: row; justify-content: center; gap: 8px; padding: 10px 8px; }
+/* Share the same height with the SVG graph, including on wide displays. */
+.log-panel .log-commit-row { height: var(--log-row-height); min-height: var(--log-row-height); max-height: var(--log-row-height); }
+.log-panel .commit-author > i { width: 20px; height: 20px; }

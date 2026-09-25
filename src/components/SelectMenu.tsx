@@ -3,6 +3,7 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import './select-menu.css';
+import { useI18n } from '../lib/i18n';
 
 export type SelectMenuOption = { value: string; label: string; description?: string; icon?: ReactNode; disabled?: boolean; group?: string };
 export type SelectMenuProps = {
@@ -51,6 +52,7 @@ function popupPosition(rect: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' |
 }
 
 export function SelectMenu({ value, onChange, label, options, placeholder = '请选择', searchable = false, searchPlaceholder = '搜索选项…', className = '', disabled = false, align = 'start' }: SelectMenuProps) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState<string | null>(null);
@@ -178,7 +180,7 @@ export function SelectMenu({ value, onChange, label, options, placeholder = '请
       <span className="select-menu-trigger-text">{selected?.label || value || placeholder}</span><ChevronDown className="select-menu-chevron" size={13} aria-hidden="true" />
     </button>
     {open && createPortal(<div ref={popupRef} className={`select-menu-popup ${position?.side === 'top' ? 'opens-up' : ''}`} style={{ ...(position ? { left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight } : { visibility: 'hidden', left: 0, top: 0, width: 290, maxHeight: 380 }) } as CSSProperties} onKeyDown={onKeyDown}>
-      {searchable && <div className="select-menu-search"><Search size={14} aria-hidden="true" /><input ref={searchRef} role="combobox" aria-label={`${label}：搜索选项`} aria-expanded="true" aria-controls={listId} aria-autocomplete="list" aria-activedescendant={active !== null ? optionIds.get(active) : undefined} placeholder={searchPlaceholder} value={query} onChange={event => setQuery(event.target.value)} autoComplete="off" spellCheck={false} />{query && <button type="button" tabIndex={-1} aria-label="清空选项搜索" onClick={() => { setQuery(''); searchRef.current?.focus(); }}><X size={12} /></button>}</div>}
+      {searchable && <div className="select-menu-search"><Search size={14} aria-hidden="true" /><input ref={searchRef} role="combobox" aria-label={`${label}: ${t('搜索选项…')}`} aria-expanded="true" aria-controls={listId} aria-autocomplete="list" aria-activedescendant={active !== null ? optionIds.get(active) : undefined} placeholder={t(searchPlaceholder)} value={query} onChange={event => setQuery(event.target.value)} autoComplete="off" spellCheck={false} />{query && <button type="button" tabIndex={-1} aria-label={t('清空选项搜索')} onClick={() => { setQuery(''); searchRef.current?.focus(); }}><X size={12} /></button>}</div>}
       <div id={listId} className="select-menu-list" role="listbox" aria-label={label}>
         {groups.map((group, index) => <div className="select-menu-group" key={group.label || '__ungrouped'} role={group.label ? 'group' : undefined} aria-labelledby={group.label ? `${listId}-group-${index}` : undefined}>
           {group.label && <div id={`${listId}-group-${index}`} className="select-menu-group-label">{group.label}</div>}
@@ -186,7 +188,7 @@ export function SelectMenu({ value, onChange, label, options, placeholder = '请
             {option.icon && <span className="select-menu-option-icon" aria-hidden="true">{option.icon}</span>}<span className="select-menu-option-copy"><span className="select-menu-option-label">{option.label}</span>{option.description && <span className="select-menu-option-description">{option.description}</span>}</span><Check className="select-menu-check" size={14} aria-hidden="true" />
           </div>)}
         </div>)}
-        {!visible.length && <div className="select-menu-empty">{query ? '没有匹配的选项' : '暂无可选项'}</div>}
+        {!visible.length && <div className="select-menu-empty">{t(query ? '没有匹配的选项' : '暂无可选项')}</div>}
       </div>
     </div>, document.body)}
   </div>;
