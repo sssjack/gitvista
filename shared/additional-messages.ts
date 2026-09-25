@@ -1,5 +1,10 @@
 // Labels shared by the workbench, repository dialogs and the desktop companion.
 export const ADDITIONAL_EN: Record<string, string> = {
+  '推送文件差异': 'Push file diff', '关闭文件差异': 'Close file diff', '重新读取差异': 'Reload diff', '弹窗查看差异': 'Open diff window',
+  '待提交更改': 'Uncommitted changes', '无法读取文件差异': 'Cannot read file diff', '读取提交文件…': 'Loading commit files…',
+  '读取文件列表失败，点击重试': 'Cannot load files. Click to retry.', '此提交没有文件变更': 'This commit has no file changes',
+  '点击提交下的文件查看该次提交的差异；暂存区文件显示已暂存改动。': 'Click a file under a commit to review that commit. Staged files show changes in the index.',
+  '待推送文件差异': 'Files to push', '展开左侧提交，点击文件查看差异；关闭弹窗后可在此继续查看。': 'Expand a commit on the left and click a file to open its diff. After closing the dialog, keep reviewing it here.',
   '每行一个父文件夹相对路径，文件夹会包含其下文件。': 'One path relative to the parent folder per line; folders include their contents.',
   '父文件夹完整目录': 'Parent folder directory', '读取目录失败，点击重试': 'Cannot read folder. Click to retry.', '符号链接不可预览': 'Symbolic links cannot be previewed',
   '此目录超过 10000 项，仅显示前 10000 项。': 'This folder exceeds 10,000 entries; showing the first 10,000.', '空文件夹': 'Empty folder',

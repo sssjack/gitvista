@@ -436,18 +436,22 @@ function diffResult(text: string): DiffResult {
 
 async function fileDiff(repo: string, request: GitQuery): Promise<DiffResult> {
   const selected = request.path ? await safePath(repo, request.path) : undefined;
+  const previous = request.oldPath ? await safePath(repo, request.oldPath) : undefined;
+  const paths = [...new Set([selected, previous].filter((value): value is string => !!value))];
   const diffFlags = ['--no-ext-diff', '--no-textconv', '--find-renames', '--no-color', '--unified=5'];
   if (request.base && request.ref) {
     const base = await output(repo, ['rev-parse', '--verify', '--end-of-options', `${ref(request.base)}^{tree}`]);
     const target = await commitRef(repo, request.ref);
-    return diffResult(await output(repo, ['diff', ...diffFlags, base.trim(), target, '--', ...(selected ? [selected] : [])]));
+    return diffResult(await output(repo, ['diff', ...diffFlags, base.trim(), target, '--', ...paths]));
   }
   if (request.ref) {
     const hash = await commitRef(repo, request.ref);
-    return diffResult(await output(repo, ['show', '--format=', '--first-parent', ...diffFlags, hash, '--', ...(selected ? [selected] : [])]));
+    return diffResult(await output(repo, ['show', '--format=', '--first-parent', '--diff-merges=first-parent', ...diffFlags, hash, '--', ...paths]));
   }
   if (selected && !request.staged) {
-    const tracked = await output(repo, ['ls-files', '-z', '--', selected]);
+    let tracked = await output(repo, ['ls-files', '-z', '--', selected]);
+    // A staged deletion is absent from the index but still belongs in HEAD → worktree.
+    if (!tracked && request.workingTree && await hasHead(repo)) tracked = await output(repo, ['ls-tree', '--name-only', '-z', 'HEAD', '--', selected]);
     if (!tracked) {
       const absolute = path.join(repo, selected);
       if (!(await exists(absolute))) return diffResult('');
@@ -458,7 +462,7 @@ async function fileDiff(repo: string, request: GitQuery): Promise<DiffResult> {
       return diffResult(result.stdout);
     }
   }
-  return diffResult(await output(repo, ['diff', ...(request.staged ? ['--cached'] : []), ...diffFlags, '--', ...(selected ? [selected] : [])]));
+  return diffResult(await output(repo, ['diff', ...(request.staged ? ['--cached'] : []), ...diffFlags, ...(request.workingTree && !request.staged && await hasHead(repo) ? ['HEAD'] : []), '--', ...paths]));
 }
 
 async function commitDetail(repo: string, requested: string | undefined): Promise<CommitDetail> {
@@ -509,6 +513,10 @@ export async function query(directory: string, request: GitQuery): Promise<unkno
     }
     case 'diff': return fileDiff(repo, request);
     case 'commit': return commitDetail(repo, request.ref);
+    case 'commitFiles': {
+      const hash = await commitRef(repo, request.ref);
+      return parseNameChanges(await output(repo, ['show', '--format=', '--first-parent', '--diff-merges=first-parent', '--name-status', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', hash, '--']));
+    }
     case 'compare': {
       const [from, to] = await Promise.all([commitRef(repo, request.ref, 'HEAD'), commitRef(repo, request.to, 'HEAD')]);
       const selected = request.path ? [await safePath(repo, request.path)] : [];

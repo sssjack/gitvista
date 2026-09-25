@@ -1,0 +1,29 @@
+.push-modal .push-list { overflow-y: auto; width: 380px; max-width: 45%; }
+.push-list > * { flex-shrink: 0; }
+.push-list .push-commits { overflow: visible; max-height: none; }
+.push-list .push-files { flex: none; overflow: visible; }
+.push-list .push-hint { margin-top: auto; }
+.push-commit-group { padding: 3px 0; border-bottom: 1px solid var(--border-soft); }
+.push-commit-summary { width: 100%; display: flex; align-items: center; gap: 6px; padding: 6px 5px; font-size: 12px; text-align: left; }
+.push-commit-summary > svg, .push-commit-summary > code, .push-commit-summary > small { flex-shrink: 0; color: var(--text-dim); }
+.push-commit-summary > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.push-commit-summary > code { font-size: 11px; }
+.push-commit-summary:hover { background: var(--hover); }
+.push-commit-file-list { padding-left: 17px; }
+.push-commit-file-list .push-file { padding: 5px 8px; }
+.push-commit-file-list .push-file > span { direction: ltr; }
+.push-files-loading, .push-files-error { display: flex; gap: 6px; align-items: center; padding: 6px 8px; font-size: 11px; color: var(--text-dim); }
+.push-files-error { color: var(--red); }
+.modal-backdrop.push-diff-backdrop { z-index: 250; }
+.push-file-diff-dialog { width: 1180px; max-width: 96vw; height: 760px; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+.push-file-diff-dialog > header { display: flex; align-items: center; gap: 9px; padding: 10px 14px; border-bottom: 1px solid var(--border); min-height: 52px; flex-shrink: 0; }
+.push-file-diff-dialog > header > svg { color: var(--accent); flex-shrink: 0; }
+.push-file-diff-dialog > header strong { white-space: nowrap; font-size: 13px; }
+.push-file-diff-dialog > header > code { font-size: 11px; color: var(--accent); }
+.push-diff-path { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.push-diff-context { display: flex; align-items: center; gap: 14px; padding: 7px 14px; font-size: 11px; color: var(--text-dim); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+.push-diff-context > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.push-diff-error { margin: auto; padding: 24px; max-width: 100%; overflow-wrap: anywhere; color: var(--red); font-size: 12px; }
+.multi-push-items .push-commit-file-list { margin-bottom: 5px; }
+.multi-push-items .push-commit-summary code { margin-right: 0; }
+.multi-push-pending-label { font-size: 11px; color: var(--text-dim); margin: 10px 0 4px; }
