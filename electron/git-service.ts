@@ -3,7 +3,8 @@ import { credentialUrl, validateCredentials, withCredentials, type ScopedCredent
 import type { RepositoryCredentials } from '../shared/types';
 import { spawn } from 'node:child_process';
 import { isUtf8 } from 'node:buffer';
-import { promises as fs } from 'node:fs';
+import { promises as fs, createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { msgf } from '../shared/messages';
 import type { AppLanguage, ActionResult, PushPreview, CommitDetail, DiffResult, GitAction, GitCommit, GitIdentity, GitIdentityUpdate, GitLogOptions, GitLogResult, GitQuery, GitRemote, GitSnapshot, GitTreeEntry, GitWorkingState, IdentityFields, RepoEntry } from '../shared/types';
@@ -691,7 +692,10 @@ async function revertFile(repo: string, request: GitAction): Promise<ActionResul
 export async function action(directory: string, request: GitAction): Promise<ActionResult> {
   if (!request || typeof request !== 'object') throw new Error('操作参数不正确。');
   const repo = await rootOf(directory);
-  return serialized(repo, async () => {
+  return serialized(repo, () => performAction(repo, request));
+}
+
+async function performAction(repo: string, request: GitAction): Promise<ActionResult> {
     let result: RunResult | undefined;
     switch (request.type) {
       case 'stage': {
@@ -926,7 +930,6 @@ export async function action(directory: string, request: GitAction): Promise<Act
       default: throw new Error('不支持的 Git 操作。');
     }
     return { output: cleanError([result?.stdout, result?.stderr].filter(Boolean).join('\n')) || '操作完成。' };
-  });
 }
 
 export async function openRepository(directory: string): Promise<RepoEntry> {
@@ -1000,4 +1003,66 @@ async function pushPreview(repo: string, requestedRemote?: string): Promise<Push
     output(repo, ['rev-list', '--count', ...revisions, '--']),
   ]);
   return { branch, remote, target, head, base, commits: parseCommits(log), files: parseNameChanges(names), total: Number(count.trim()) };
+}
+
+export async function repositoryHasCommits(directory: string): Promise<boolean> { return hasHead(await rootOf(directory)); }
+
+export interface PreparedWorkspacePush {
+  repo: string; preview: PushPreview; files: GitWorkingState['files']; includeChanges: boolean; fingerprint: string; remoteUrls: string;
+}
+
+async function workingFingerprint(repo: string, files: GitWorkingState['files']): Promise<string> {
+  const hash = createHash('sha256').update(JSON.stringify(files));
+  for (const cached of [false, true]) hash.update(await output(repo, ['diff', ...(cached ? ['--cached'] : []), '--binary', '--no-ext-diff', '--no-textconv', 'HEAD', '--']));
+  let bytes = 0;
+  for (const file of files.filter(file => file.index === '?')) {
+    const selected = await safePath(repo, file.path), absolute = path.join(repo, selected);
+    const stat = await fs.lstat(absolute);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('批量推送只接受普通文件；请在单仓库中处理嵌套仓库或符号链接。');
+    bytes += stat.size;
+    if (bytes > 256 * 1024 * 1024) throw new Error('未跟踪文件过大，请先在单仓库中检查并提交。');
+    hash.update(selected).update('\0');
+    for await (const chunk of createReadStream(absolute)) hash.update(chunk);
+  }
+  return hash.digest('hex');
+}
+
+async function preparePushUnlocked(repo: string, includeChanges: boolean): Promise<PreparedWorkspacePush> {
+  if (await operation(repo)) throw new Error('请先完成当前仓库中的 Git 操作。');
+  const preview = await pushPreview(repo);
+  const state = parseStatus(await output(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=all']));
+  if (state.files.some(file => file.conflict)) throw new Error('仓库中仍有冲突，请先解决冲突。');
+  const files = includeChanges ? state.files : [];
+  if (files.length > 10_000) throw new Error('批量推送文件过多，请先在单仓库中检查并提交。');
+  const remoteUrls = await output(repo, ['remote', 'get-url', '--push', '--all', preview.remote]);
+  return { repo, preview, files, includeChanges, fingerprint: includeChanges ? await workingFingerprint(repo, files) : '', remoteUrls };
+}
+
+export async function prepareWorkspacePush(directory: string, includeChanges: boolean): Promise<PreparedWorkspacePush> {
+  const repo = await rootOf(directory);
+  return serialized(repo, () => preparePushUnlocked(repo, includeChanges));
+}
+
+/** Validate and execute under one per-repository queue, keeping an intervening UI action out. */
+export async function applyWorkspacePush(plan: PreparedWorkspacePush, message?: string): Promise<{ output: string; commitHash?: string; skipped?: boolean }> {
+  const repo = await rootOf(plan.repo);
+  return serialized(repo, async () => {
+    const current = await preparePushUnlocked(repo, plan.includeChanges);
+    if (current.repo !== plan.repo || current.preview.head !== plan.preview.head || current.preview.branch !== plan.preview.branch || current.preview.target !== plan.preview.target || current.preview.remote !== plan.preview.remote || current.remoteUrls !== plan.remoteUrls || current.fingerprint !== plan.fingerprint) throw new Error('仓库或文件已变化，请重新生成批量推送预览。');
+    if (!current.files.length && !current.preview.total) return { output: '没有待推送的提交。', skipped: true };
+    let commitHash: string | undefined;
+    try {
+      if (current.files.length) {
+        await performAction(repo, { type: 'commit', paths: current.files.map(file => file.path), message: required(message, '提交说明', 50_000) });
+        commitHash = await commitRef(repo, 'HEAD');
+      }
+      // Push only the branch and target reviewed above; never force or include tags.
+      const result = await run(repo, ['push', '--set-upstream', current.preview.remote, `refs/heads/${current.preview.branch}:refs/heads/${current.preview.target}`], { timeout: NETWORK_TIMEOUT });
+      return { output: cleanError([result.stdout, result.stderr].filter(Boolean).join('\n')) || '操作完成。', commitHash };
+    } catch (error) {
+      const failure = new Error(cleanError((error as Error).message)) as Error & { commitHash?: string };
+      failure.commitHash = commitHash;
+      throw failure;
+    }
+  });
 }

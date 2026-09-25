@@ -2,6 +2,7 @@ import { setBundledGit, setBundledGitPreferred } from './git-runtime';
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import * as git from './git-service';
 import { DEFAULT_PREFERENCES } from '../shared/types';
 import type { AppSettings, GitAction, RepoEntry } from '../shared/types';
@@ -11,6 +12,8 @@ import { canonicalRendererPath, createRendererUrlValidator } from './renderer-or
 import { DesktopCompanion } from './desktop-companion';
 import { clearCredentials, credentialUrl, rememberCredentials, validateCredentials } from './git-credentials';
 import type { DesktopCommand, GitLogResult } from '../shared/types';
+import type { WorkspaceBatch, WorkspaceOverview, WorkspaceProgress, WorkspacePushPlan, WorkspaceScan } from '../shared/types';
+import { discoverRepositories, hasGitMarker, scanWorkspace, workspaceDirectory, readWorkspaceDirectory, readWorkspaceFile } from './workspace-service';
 
 /**
  * 主进程的对话框与错误信息跟随界面语言。
@@ -38,6 +41,10 @@ let closeNoticeOpen = false;
 let companion: DesktopCompanion | undefined;
 let quitting = false;
 const approvedRepos = new Set<string>();
+const approvedWorkspaces = new Set<string>();
+const workspaceRuns = new Set<string>();
+const workspaceRepositories = new Map<string, RepoEntry[]>();
+const workspacePlans = new Map<string, { root: string; created: number; plans: Map<string, git.PreparedWorkspacePush> }>();
 const devUrl = !app.isPackaged && process.env.GITVISTA_DEV_URL === 'http://127.0.0.1:5179' ? process.env.GITVISTA_DEV_URL : undefined;
 const rendererFile = devUrl ? '' : canonicalRendererPath(path.join(__dirname, '../dist/index.html'));
 const rendererUrlMatches = devUrl ? () => false : createRendererUrlValidator(rendererFile);
@@ -74,6 +81,103 @@ async function registerRepo(value: string): Promise<RepoEntry> {
   });
   void companion?.refresh();
   return entry;
+}
+async function registerWorkspace(value: unknown): Promise<RepoEntry> {
+  const root = await workspaceDirectory(value);
+  const entry: RepoEntry = { path: root, name: path.basename(root), kind: 'workspace', lastOpened: new Date().toISOString() };
+  approvedWorkspaces.add(repoKey(root));
+  await queueSettings(() => persist({ ...settings, repos: [entry, ...settings.repos.filter(repo => repoKey(repo.path) !== repoKey(root))].slice(0, 30), lastRepo: root }));
+  void companion?.refresh();
+  return entry;
+}
+async function openLocation(value: string): Promise<RepoEntry> {
+  const root = await workspaceDirectory(value);
+  if (settings.repos.some(entry => entry.kind === 'workspace' && repoKey(entry.path) === repoKey(root))) return registerWorkspace(root);
+  if (await hasGitMarker(root)) {
+    if (!(await git.repositoryHasCommits(root)) && (await discoverRepositories(root, true)).repositories.length) return registerWorkspace(root);
+    return registerRepo(root);
+  }
+  return registerWorkspace(root);
+}
+function requireWorkspace(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || !approvedWorkspaces.has(repoKey(value))) throw new Error('请先打开此多仓库工作区。');
+}
+async function approvedScan(root: string): Promise<WorkspaceScan> {
+  requireWorkspace(root);
+  const scan = await scanWorkspace(root);
+  if (repoKey(scan.root) !== repoKey(root)) throw new Error('工作区路径已变化，请重新打开。');
+  for (const entry of scan.repositories) approvedRepos.add(repoKey(entry.path));
+  workspaceRepositories.set(repoKey(root), scan.repositories);
+  return scan;
+}
+function workspaceTargets(scan: WorkspaceScan, requested: unknown): string[] {
+  if (!Array.isArray(requested) || !requested.length || requested.length > 100 || requested.some(repo => typeof repo !== 'string')) throw new Error('请选择要处理的仓库。');
+  const members = new Map(scan.repositories.map(entry => [repoKey(entry.path), entry.path]));
+  return [...new Set(requested.map(repo => { const member = members.get(repoKey(repo)); if (!member) throw new Error('仓库不在当前工作区中，请重新扫描。'); return member; }))];
+}
+async function workspaceOverview(root: string): Promise<WorkspaceOverview> {
+  const scan = await approvedScan(root);
+  const repositories: WorkspaceOverview['repositories'] = [];
+  for (let index = 0; index < scan.repositories.length; index += 4) {
+    repositories.push(...await Promise.all(scan.repositories.slice(index, index + 4).map(async entry => {
+      try { return { entry, snapshot: await git.query(entry.path, { type: 'snapshot', limit: 30 }) as import('../shared/types').GitSnapshot }; }
+      catch (error) { return { entry, error: localized(error).message }; }
+    })));
+  }
+  return { scan, repositories };
+}
+async function workspacePreview(root: string, requested: unknown, includeChanges: unknown): Promise<WorkspacePushPlan> {
+  if (typeof includeChanges !== 'boolean') throw new Error('无效的批量推送参数。');
+  const scan = await approvedScan(root);
+  const repos = workspaceTargets(scan, requested);
+  const result: WorkspacePushPlan = { id: randomUUID(), includeChanges, items: [] };
+  const plans = new Map<string, git.PreparedWorkspacePush>();
+  for (const repo of repos) {
+    try {
+      const plan = await git.prepareWorkspacePush(repo, includeChanges);
+      // Do not automatically stage a nested repository as part of its parent.
+      const nested = scan.repositories.map(entry => entry.path).filter(child => repoKey(child).startsWith(repoKey(repo) + path.sep)).map(child => path.relative(repo, child).replaceAll('\\', '/'));
+      if (plan.files.some(file => nested.some(child => file.path === child || file.path.startsWith(child + '/')))) throw new Error('父仓库包含子仓库改动，请分别在单仓库中检查后提交。');
+      plans.set(repoKey(repo), plan); result.items.push({ repo, preview: plan.preview, files: plan.files });
+    } catch (error) { result.items.push({ repo, files: [], error: localized(error).message }); }
+  }
+  for (const [id, plan] of workspacePlans) if (plan.root === repoKey(root) || Date.now() - plan.created > 600_000) workspacePlans.delete(id);
+  workspacePlans.set(result.id, { root: repoKey(root), created: Date.now(), plans });
+  return result;
+}
+async function workspaceBatch(root: string, request: WorkspaceBatch): Promise<WorkspaceProgress[]> {
+  requireWorkspace(root);
+  if (!request || !['fetch', 'pull', 'push'].includes(request.operation)) throw new Error('无效的批量操作。');
+  const key = repoKey(root);
+  if (workspaceRuns.has(key)) throw new Error('此工作区已有批量操作正在执行。');
+  workspaceRuns.add(key);
+  try {
+    const repos = workspaceTargets(await approvedScan(root), request.repos);
+    const plan = request.operation === 'push' && typeof request.planId === 'string' ? workspacePlans.get(request.planId) : undefined;
+    if (request.operation === 'push') {
+      if (!plan || plan.root !== key || Date.now() - plan.created > 600_000 || repos.some(repo => !plan.plans.has(repoKey(repo)))) throw new Error('推送预览已失效，请重新生成预览。');
+      if (repos.some(repo => plan.plans.get(repoKey(repo))!.files.length) && (typeof request.message !== 'string' || !request.message.trim() || request.message.length > 50_000)) throw new Error('请填写本次批量提交的说明。');
+      workspacePlans.delete(request.planId!);
+    }
+    const results: WorkspaceProgress[] = [];
+    for (const repo of repos) {
+      const base = { root, repo, operation: request.operation };
+      window?.webContents.send('gv:workspace:progress', { ...base, status: 'running', output: '' });
+      let progress: WorkspaceProgress;
+      try {
+        requireRepo(repo);
+        if (request.operation === 'push') {
+          const result = await git.applyWorkspacePush(plan!.plans.get(repoKey(repo))!, request.message);
+          progress = { ...base, status: result.skipped ? 'skipped' : 'success', output: msg(result.output).slice(-32_000), commitHash: result.commitHash };
+        } else {
+          const result = await git.action(repo, { type: request.operation, ...(request.operation === 'pull' ? { mode: settings.pullStrategy } : {}) });
+          progress = { ...base, status: 'success', output: msg(result.output).slice(-32_000) };
+        }
+      } catch (error) { progress = { ...base, status: 'failed', output: localized(error).message.slice(-32_000), commitHash: (error as Error & { commitHash?: string }).commitHash }; }
+      results.push(progress); window?.webContents.send('gv:workspace:progress', progress);
+    }
+    return results;
+  } finally { workspaceRuns.delete(key); void companion?.refresh(); }
 }
 function requireRepo(repo: unknown): asserts repo is string {
   if (typeof repo !== 'string' || !approvedRepos.has(repoKey(repo))) throw new Error('请先通过“打开仓库”选择此仓库。');
@@ -179,25 +283,29 @@ function installHandlers() {
     requireRepo(repo);
     return withOperation(() => git.setGitIdentity(repo, identity));
   });
-  handle('gv:open', async value => {
+  handle('gv:open', async (value, singleRepository) => {
     const target = typeof value === 'string' && value.trim() ? value : await chooseDirectory(msg('打开 Git 仓库'));
     if (!target) return null;
-    try { return await registerRepo(target); }
-    catch (error) {
-      if (!/not a git repository/i.test(String(error))) throw error;
-      const result = await dialog.showMessageBox(window!, { type: 'question', title: msg('打开本地文件夹…'), message: msg('此文件夹不是 Git 仓库。是否初始化后打开？'), detail: target, buttons: [msg('取消'), msg('初始化并打开')], defaultId: 0, cancelId: 0 });
-      if (result.response !== 1) return null;
-      const entry = await withOperation(() => git.initRepository(target));
-      return registerRepo(entry.path);
-    }
+    if (singleRepository === true) { requireRepo(target); return registerRepo(target); }
+    return withOperation(() => openLocation(target));
   });
+  handle('gv:workspace:open', async value => {
+    const target = typeof value === 'string' && value.trim() ? value : await chooseDirectory(msg('打开多仓库工作区'));
+    return target ? registerWorkspace(target) : null;
+  });
+  handle('gv:workspace:overview', root => withOperation(() => workspaceOverview(root)));
+  handle('gv:workspace:directory', (root, relative) => { requireWorkspace(root); return readWorkspaceDirectory(root, relative); });
+  handle('gv:workspace:file', (root, relative) => { requireWorkspace(root); return readWorkspaceFile(root, relative); });
+  handle('gv:workspace:preview', (root, repos, includeChanges) => withOperation(() => workspacePreview(root, repos, includeChanges)));
+  handle('gv:workspace:batch', (root, request) => withOperation(() => workspaceBatch(root, request)));
   handle('gv:forget', async repo => {
-    requireRepo(repo);
+    if (typeof repo !== 'string' || (!approvedRepos.has(repoKey(repo)) && !approvedWorkspaces.has(repoKey(repo)))) throw new Error('请先打开此多仓库工作区。');
     await queueSettings(async () => {
       const repos = settings.repos.filter(item => repoKey(item.path) !== repoKey(repo));
       const lastRepo = settings.lastRepo && repoKey(settings.lastRepo) === repoKey(repo) ? repos[0]?.path : settings.lastRepo;
       await persist({ ...settings, repos, lastRepo });
       approvedRepos.delete(repoKey(repo));
+      approvedWorkspaces.delete(repoKey(repo)); workspaceRepositories.delete(repoKey(repo));
     });
     void companion?.refresh();
   });
@@ -320,16 +428,44 @@ else {
     // 开发态优先使用系统 Git，打包后优先使用内置 Git，避免本机已装的 Git 版本差异影响调试。
     setBundledGitPreferred(app.isPackaged);
     await git.configureGitExecutable(settings.gitPath);
-    for (const repo of settings.repos) approvedRepos.add(repoKey(repo.path));
+    for (const repo of settings.repos) (repo.kind === 'workspace' ? approvedWorkspaces : approvedRepos).add(repoKey(repo.path));
     const repoArgument = process.argv.find(value => value.startsWith('--repo='));
-    if (repoArgument) { try { await registerRepo(repoArgument.slice(7)); } catch (error) { console.error('打开启动仓库失败：', (error as Error).message); } }
+    if (repoArgument) { try { await openLocation(repoArgument.slice(7)); } catch (error) { console.error('打开启动仓库失败：', (error as Error).message); } }
+    else if (settings.lastRepo) { try { await openLocation(settings.lastRepo); } catch { /* Keep a missing recent location visible for the user to reopen. */ } }
     installHandlers();
     await createWindow();
     await createMiniWindow();
     companion = new DesktopCompanion(window!, miniWindow!, {
       settings: () => settings, busy: () => activeOperations > 0 || pendingSettingsWrites > 0 || executableChangeInProgress,
-      log: async repo => { requireRepo(repo); try { return await git.query(repo, { type: 'log', log: { branch: 'HEAD', limit: 5 } }) as GitLogResult; } catch (error) { throw localized(error); } },
-      pull: async repo => { requireRepo(repo); try { return await withOperation(() => git.action(repo, { type: 'pull', mode: settings.pullStrategy })); } catch (error) { throw localized(error); } },
+      log: async repo => {
+        try {
+          if (approvedWorkspaces.has(repoKey(repo))) {
+            const entries = workspaceRepositories.get(repoKey(repo)) || (await approvedScan(repo)).repositories;
+            const commits: GitLogResult['commits'] = [];
+            for (let index = 0; index < entries.length; index += 4) {
+              const results = await Promise.allSettled(entries.slice(index, index + 4).map(async entry => {
+                const result = await git.query(entry.path, { type: 'log', log: { branch: 'HEAD', limit: 5 } }) as GitLogResult;
+                return result.commits.map(commit => ({ ...commit, subject: `[${path.relative(repo, entry.path) || entry.name}] ${commit.subject}` }));
+              }));
+              for (const result of results) if (result.status === 'fulfilled') commits.push(...result.value);
+            }
+            return { commits: commits.sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, 5), hasMore: false, nextSkip: 5 };
+          }
+          requireRepo(repo); return await git.query(repo, { type: 'log', log: { branch: 'HEAD', limit: 5 } }) as GitLogResult;
+        } catch (error) { throw localized(error); }
+      },
+      pull: async repo => {
+        try {
+          if (approvedWorkspaces.has(repoKey(repo))) return await withOperation(async () => {
+            const scan = await approvedScan(repo);
+            const results = await workspaceBatch(repo, { operation: 'pull', repos: scan.repositories.map(entry => entry.path) });
+            const failed = results.filter(result => result.status === 'failed');
+            if (failed.length) throw new Error(failed.map(result => `${path.basename(result.repo)}: ${result.output}`).join('\n'));
+            return results;
+          });
+          requireRepo(repo); return await withOperation(() => git.action(repo, { type: 'pull', mode: settings.pullStrategy }));
+        } catch (error) { throw localized(error); }
+      },
       quit: () => app.quit(),
     });
     app.on('activate', () => { if (!window) void createWindow(); });

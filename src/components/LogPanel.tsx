@@ -1,7 +1,7 @@
 import SelectMenu from './SelectMenu';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownUp, ArrowUpRight, CalendarDays, Check, ChevronDown, Eye, FilterX, GitBranch, GitCommitHorizontal, History, Loader2, MoreHorizontal, RefreshCw, Search, Tag, X, Zap } from 'lucide-react';
-import type { GitCommit, GitLogOptions, GitLogResult, GitSnapshot } from '../../shared/types';
+import type { GitCommit, GitLogOptions, GitLogResult, GitQuery, GitSnapshot } from '../../shared/types';
 import CommitGraph from './CommitGraph';
 import { buildCommitGraph } from '../lib/commit-graph';
 import { useI18n } from '../lib/i18n';
@@ -32,9 +32,12 @@ function readView(): ViewOptions {
   catch { return DEFAULT_VIEW; }
 }
 
-export default function LogPanel({ repo, snapshot, selected, busy, blocked, refreshing, command, inCurrentBranch, onSelect, onRefresh, onTool }: {
+export interface LogSource { query: <T>(request: GitQuery) => Promise<T>; commitLabel: (hash: string) => string; refLabel: (ref: string) => string; controls?: React.ReactNode }
+
+export default function LogPanel({ repo, snapshot, selected, busy, blocked, refreshing, command, inCurrentBranch, onSelect, onRefresh, onTool, source }: {
   repo: string; snapshot: GitSnapshot; selected?: string; busy: boolean; blocked: boolean; refreshing: boolean; command?: LogCommand; inCurrentBranch?: boolean;
   onSelect: (hash: string) => void; onRefresh: () => void; onTool: (tool: 'cherryPick' | 'revert' | 'tagCreate' | 'reset' | 'exportPatch' | 'reflog' | 'branchCreate' | 'writeCommitGraph', values?: Record<string, string | boolean>) => void;
+  source?: LogSource;
 }) {
   const [filter, setFilter] = useState<GitLogOptions>({ ...EMPTY_FILTER });
   const { t, locale } = useI18n();
@@ -54,6 +57,7 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
   const resetRepoRef = useRef(repo); const debounceRef = useRef(false);
   const authorsRequest = useRef<{ repo: string; commits: GitCommit[]; pending: boolean; loaded: boolean } | null>(null);
   const rootRef = useRef<HTMLElement>(null); const headRef = useRef<HTMLDivElement>(null); const api = window.gitvista;
+  const query = useCallback(<T,>(request: GitQuery) => source ? source.query<T>(request) : api.query<T>(repo, request), [api, repo, source]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const updateFilter = (patch: Partial<GitLogOptions>, typing = false) => { ++locateId.current; ++requestId.current; debounceRef.current = typing; setLocating(false); setFilter(current => ({ ...current, ...patch })); };
   const resetFilter = () => { ++locateId.current; ++requestId.current; debounceRef.current = false; setLocating(false); setFilter({ ...EMPTY_FILTER }); setPathText(''); };
@@ -81,7 +85,7 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
     const previous = authorsRequest.current;
     if (previous?.repo === repo && previous.commits === snapshot.commits && (previous.pending || previous.loaded)) return;
     const request = { repo, commits: snapshot.commits, pending: true, loaded: false }; authorsRequest.current = request;
-    void api.query<string[]>(repo, { type: 'logAuthors' }).then(values => {
+    void query<string[]>({ type: 'logAuthors' }).then(values => {
       if (authorsRequest.current === request && repo === repoRef.current) { request.loaded = true; setAuthors(values); }
     }).catch(() => { /* 快照中的作者仍可选择；再次聚焦时可以重试读取完整列表。 */ }).finally(() => { request.pending = false; });
   };
@@ -90,18 +94,18 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
     const cached = snapshotLogResult(snapshot, filter);
     if (cached) { debounceRef.current = false; setResult(cached); setLoading(false); return; }
     setLoading(true);
-    const query = () => {
+    const request = () => {
       debounceRef.current = false;
-      api.query<GitLogResult>(repo, { type: 'log', log: { ...filter, skip: 0, limit: 250 } }).then(data => { if (alive && id === requestId.current && repo === repoRef.current) setResult(data); }).catch(e => { if (alive && id === requestId.current) { setError(errorText(e)); setResult({ commits: [], hasMore: false, nextSkip: 0 }); } }).finally(() => { if (alive && id === requestId.current) setLoading(false); });
+      query<GitLogResult>({ type: 'log', log: { ...filter, skip: 0, limit: 250 } }).then(data => { if (alive && id === requestId.current && repo === repoRef.current) setResult(data); }).catch(e => { if (alive && id === requestId.current) { setError(errorText(e)); setResult({ commits: [], hasMore: false, nextSkip: 0 }); } }).finally(() => { if (alive && id === requestId.current) setLoading(false); });
     };
-    const timer = debounceRef.current ? setTimeout(query, 260) : undefined;
-    if (timer === undefined) query();
+    const timer = debounceRef.current ? setTimeout(request, 260) : undefined;
+    if (timer === undefined) request();
     return () => { alive = false; if (timer !== undefined) clearTimeout(timer); };
-  }, [repo, filter, snapshot.commits, snapshot.commitsHasMore, snapshot.commitsOrder, api]);
+  }, [repo, filter, snapshot.commits, snapshot.commitsHasMore, snapshot.commitsOrder, query]);
   const loadMore = async () => {
     if (loading || !result.hasMore) return;
     const id = requestId.current; const targetRepo = repo; setLoading(true);
-    try { const next = await api.query<GitLogResult>(targetRepo, { type: 'log', log: { ...filter, skip: result.nextSkip, limit: 250 } }); if (id === requestId.current && targetRepo === repoRef.current) setResult(current => ({ ...next, commits: [...current.commits, ...next.commits.filter(commit => !current.commits.some(existing => existing.hash === commit.hash))] })); }
+    try { const next = await query<GitLogResult>({ type: 'log', log: { ...filter, skip: result.nextSkip, limit: 250 } }); if (id === requestId.current && targetRepo === repoRef.current) setResult(current => ({ ...next, commits: [...current.commits, ...next.commits.filter(commit => !current.commits.some(existing => existing.hash === commit.hash))] })); }
     catch (e) { if (id === requestId.current && targetRepo === repoRef.current) setError(errorText(e)); }
     finally { if (id === requestId.current && targetRepo === repoRef.current) setLoading(false); }
   };
@@ -109,12 +113,12 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
     if (!value.trim() || busy) return;
     const id = ++locateId.current; const targetRepo = repo; setLocating(true); setError('');
     try {
-      const commit = await api.query<GitCommit>(targetRepo, { type: 'resolveRef', ref: value.trim() });
+      const commit = await query<GitCommit>({ type: 'resolveRef', ref: value.trim() });
       if (id !== locateId.current || targetRepo !== repoRef.current) return;
       ++requestId.current; debounceRef.current = false; setFilter({ ...EMPTY_FILTER, branch: commit.hash }); setPathText(''); onSelect(commit.hash); setLocateOpen(false); setMenu(null);
     } catch (e) { if (id === locateId.current && targetRepo === repoRef.current) setError(errorText(e)); }
     finally { if (id === locateId.current) setLocating(false); }
-  }, [api, repo, busy, onSelect]);
+  }, [query, repo, busy, onSelect]);
   useEffect(() => { if (!command) return; if (command.kind === 'branch') { updateFilter({ branch: command.value }); } else { setLocateText(command.value); void locate(command.value); } }, [command?.id]);
   useEffect(() => { if (!locateOpen) return; locateRef.current?.focus(); locateRef.current?.select(); }, [locateOpen]);
   useEffect(() => { if (!selected) return; rootRef.current?.querySelector<HTMLElement>(`[data-commit="${selected}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [selected, result]);
@@ -170,24 +174,24 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
   };
   const row = (commit: GitCommit) => {
     const date = view.commitDate ? commit.committedDate || commit.date : commit.date;
-    return <button className={`commit-row log-commit-row ${selected === commit.hash ? 'selected' : ''} ${view.refsRight ? 'refs-right' : ''}`} data-commit={commit.hash} style={tableStyle} key={commit.hash} title={commit.subject} disabled={blocked || busy || loading} onClick={() => onSelect(commit.hash)} onContextMenu={e => { e.preventDefault(); if (!blocked && !busy && !loading) { onSelect(commit.hash); setMenu('more'); } }}>
+    return <button className={`commit-row log-commit-row ${selected === commit.hash ? 'selected' : ''} ${view.refsRight ? 'refs-right' : ''}`} data-commit={commit.hash} style={tableStyle} key={commit.hash} title={commit.subject} disabled={blocked || busy || loading} onClick={() => onSelect(commit.hash)} onContextMenu={e => { e.preventDefault(); if (!blocked && !busy && !loading) { onSelect(commit.hash); if (!source) setMenu('more'); } }}>
       <span className="commit-graph-space" aria-hidden="true" />
-      <span className="commit-subject">{!view.refsRight && refs(commit)}<span className="commit-title">{commit.subject}</span>{view.refsRight && refs(commit)}</span>
+      <span className="commit-subject">{source && <span className="workspace-commit-repo" title={source.commitLabel(commit.hash)}>{source.commitLabel(commit.hash)}</span>}{!view.refsRight && refs(commit)}<span className="commit-title">{commit.subject}</span>{view.refsRight && refs(commit)}</span>
       {view.author && <span className="commit-author" title={`${commit.author} <${commit.email}>`}><i aria-hidden="true">{commit.author.slice(0, 1).toUpperCase()}</i><span>{commit.author}</span></span>}
-      {view.date && <span className="commit-date" title={date}>{shortDate(date)}</span>}{view.hash && <span className="commit-hash" title={commit.hash}>{commit.short}</span>}
+      {view.date && <span className="commit-date" title={date}>{shortDate(date)}</span>}{view.hash && <span className="commit-hash" title={source ? commit.hash.split('|').pop() : commit.hash}>{commit.short}</span>}
     </button>;
   };
   return <section className="history-panel log-panel" ref={rootRef} aria-label={t('Git 日志')} style={{ '--log-row-height': `${LOG_ROW_HEIGHT}px` } as React.CSSProperties}>
     <div className="panel-heading"><div className="panel-tab"><History size={15} />{t('提交历史')}<span>{commits.length}</span></div><div className="panel-heading-actions">
-      <button type="button" className="icon-button" aria-label={t('加速日志查询')} title={`${t('加速日志查询')} · ${t('生成 Git 原生 commit-graph 缓存')}`} onClick={() => tool('writeCommitGraph')} disabled={busy}><Zap size={14} /></button>
-      {iconButton('拣选选中提交', <GitCommitHorizontal size={15} />, () => tool('cherryPick'), !selected || busy || inCurrentBranch !== false)}
+      {!source && <button type="button" className="icon-button" aria-label={t('加速日志查询')} title={`${t('加速日志查询')} · ${t('生成 Git 原生 commit-graph 缓存')}`} onClick={() => tool('writeCommitGraph')} disabled={busy}><Zap size={14} /></button>}
+      {!source && iconButton('拣选选中提交', <GitCommitHorizontal size={15} />, () => tool('cherryPick'), !selected || busy || inCurrentBranch !== false)}
       {iconButton('刷新 · Ctrl+R', <RefreshCw size={14} className={loading || refreshing ? 'spin' : ''} />, onRefresh, busy || refreshing)}
       {iconButton('定位提交、分支或标签 · Ctrl+F', <Search size={15} />, () => { setLocateOpen(current => !current); setMenu(null); }, busy)}
       {iconButton('日志显示选项', <Eye size={15} />, () => toggleMenu('view'))}
-      {iconButton('更多日志操作', <MoreHorizontal size={17} />, () => toggleMenu('more'))}
+      {!source && iconButton('更多日志操作', <MoreHorizontal size={17} />, () => toggleMenu('more'))}
     </div></div>
     <div className="log-toolbar"><div className="history-search"><Search size={14} /><input ref={searchRef} aria-label={t('搜索日志文本或哈希')} placeholder="Text or hash · Ctrl+L" value={filter.text || ''} onChange={e => updateFilter({ text: e.target.value }, true)} />{filter.text && iconButton('清空搜索', <X size={12} />, () => updateFilter({ text: '' }))}<button className={`search-option ${filter.regex ? 'active' : ''}`} title={t('正则表达式')} aria-label={t('正则表达式')} aria-pressed={!!filter.regex} onClick={() => updateFilter({ regex: !filter.regex })}>.*</button><button className={`search-option ${filter.matchCase ? 'active' : ''}`} title={t('区分大小写')} aria-label={t('区分大小写')} aria-pressed={!!filter.matchCase} onClick={() => updateFilter({ matchCase: !filter.matchCase })}>Cc</button></div>
-      <div className="log-filter-controls"><div className="log-select"><GitBranch size={12} /><SelectMenu label={t('日志分支筛选')} searchable searchPlaceholder={t('搜索分支…')} value={filter.branch || ''} onChange={value => updateFilter({ branch: value })} options={[{ value: '', label: `Branch · ${t('全部分支')}` }, { value: 'HEAD', label: `HEAD · ${t('当前分支')}` }, ...(filter.branch && filter.branch !== 'HEAD' && !snapshot.branches.some(branch => branch.name === filter.branch) ? [{ value: filter.branch, label: `${filter.branch.slice(0, 12)} · ${t('定位提交')}` }] : []), ...snapshot.branches.map(branch => ({ value: branch.name, label: branch.name, group: branch.remote ? t('远端分支') : t('本地分支'), icon: <GitBranch size={14} /> }))]} /></div>
+      <div className="log-filter-controls">{source?.controls}<div className="log-select"><GitBranch size={12} /><SelectMenu label={t('日志分支筛选')} searchable searchPlaceholder={t('搜索分支…')} value={filter.branch || ''} onChange={value => updateFilter({ branch: value })} options={[{ value: '', label: `Branch · ${t('全部分支')}` }, { value: 'HEAD', label: `HEAD · ${t('当前分支')}` }, ...(filter.branch && filter.branch !== 'HEAD' && !snapshot.branches.some(branch => branch.name === filter.branch) ? [{ value: filter.branch, label: `${source ? source.refLabel(filter.branch) : filter.branch.slice(0, 12)} · ${t('定位提交')}` }] : []), ...snapshot.branches.map(branch => ({ value: branch.name, label: source ? source.refLabel(branch.name) : branch.name, group: branch.remote ? t('远端分支') : t('本地分支'), icon: <GitBranch size={14} /> }))]} /></div>
       <label className="log-author"><input aria-label={t('日志作者筛选')} placeholder={`User · ${t('作者或邮箱')}`} list="log-authors" value={filter.author || ''} onFocus={loadAuthors} onChange={e => updateFilter({ author: e.target.value }, true)} /><datalist id="log-authors">{availableAuthors.map(author => <option key={author} value={author} />)}</datalist></label>
       <button className={`log-filter-button ${filter.since || filter.until ? 'active' : ''}`} onClick={() => toggleMenu('date')} aria-label={t('日志日期筛选')}><CalendarDays size={12} />Date<ChevronDown size={11} /></button>
       <button className={`log-filter-button ${filter.paths?.length ? 'active' : ''}`} onClick={() => toggleMenu('paths')} aria-label={t('日志路径筛选')}>Paths{filter.paths?.length ? ` (${filter.paths.length})` : ''}<ChevronDown size={11} /></button>
@@ -200,16 +204,16 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
       {menu === 'view' && <button className="log-menu-item" disabled={!Object.keys(columnWidths).length} onClick={() => setColumnWidths({})}>{t('重置列宽')}</button>}
       {menu === 'sort' && <><label className="log-check"><input type="radio" name="log-sort" checked={filter.order === 'topo'} onChange={() => updateFilter({ order: 'topo' })} />{t('拓扑排序 · 保持分支相邻')}</label><label className="log-check"><input type="radio" name="log-sort" checked={filter.order === 'date'} onChange={() => updateFilter({ order: 'date' })} />{t('日期排序 · 按提交时间')}</label><hr /><label className="log-check"><input type="checkbox" checked={!!filter.firstParent} onChange={e => updateFilter({ firstParent: e.target.checked })} />{t('仅第一父提交')}</label><label className="log-check"><input type="checkbox" checked={!!filter.noMerges} onChange={e => updateFilter({ noMerges: e.target.checked })} />{t('隐藏合并提交')}</label></>}
       {menu === 'date' && <><label className="form-field"><span>{t('开始日期（含）')}</span><input type="date" aria-label={t('开始日期（含）')} value={filter.since || ''} onChange={e => updateFilter({ since: e.target.value })} /></label><label className="form-field"><span>{t('结束日期（含）')}</span><input type="date" aria-label={t('结束日期（含）')} value={filter.until || ''} onChange={e => updateFilter({ until: e.target.value })} /></label><button className="text-button" onClick={() => updateFilter({ since: '', until: '' })}>{t('清除日期')}</button></>}
-      {menu === 'paths' && <form onSubmit={e => { e.preventDefault(); updateFilter({ paths: pathText.split(/\r?\n/).map(path => path.trim()).filter(Boolean) }); setMenu(null); }}><p>{t('每行一个仓库相对路径，文件夹会包含其下文件。')}</p><textarea aria-label={t('日志路径列表')} placeholder={'src/\nREADME.md'} value={pathText} onChange={e => setPathText(e.target.value)} /><div className="log-popover-actions"><button type="button" onClick={() => { setPathText(''); updateFilter({ paths: [] }); setMenu(null); }}>{t('清除')}</button><button className="primary-button" type="submit"><Check size={12} />{t('应用路径')}</button></div></form>}
+      {menu === 'paths' && <form onSubmit={e => { e.preventDefault(); updateFilter({ paths: pathText.split(/\r?\n/).map(path => path.trim()).filter(Boolean) }); setMenu(null); }}><p>{t(source ? '每行一个父文件夹相对路径，文件夹会包含其下文件。' : '每行一个仓库相对路径，文件夹会包含其下文件。')}</p><textarea aria-label={t('日志路径列表')} placeholder={source ? 'project/src/\nproject/README.md' : 'src/\nREADME.md'} value={pathText} onChange={e => setPathText(e.target.value)} /><div className="log-popover-actions"><button type="button" onClick={() => { setPathText(''); updateFilter({ paths: [] }); setMenu(null); }}>{t('清除')}</button><button className="primary-button" type="submit"><Check size={12} />{t('应用路径')}</button></div></form>}
       {menu === 'more' && <>{([['cherryPick', '拣选选中提交'], ['revert', '还原选中提交'], ['tagCreate', '为提交创建标签'], ['reset', '重置到此提交'], ['exportPatch', '导出补丁'], ['reflog', '引用日志'], ['writeCommitGraph', '加速日志查询'], ['branchCreate', '全部 Git 操作']] as const).map(([id, label]) => <button className="log-menu-item" key={id} disabled={busy || (!selected && !['reflog', 'branchCreate', 'writeCommitGraph'].includes(id)) || (id === 'cherryPick' && inCurrentBranch !== false)} onClick={() => tool(id)}>{t(label)}<ArrowUpRight size={12} /></button>)}</>}
     </div>}
-    {error && <div className="log-error" role="alert">{error}</div>}
+    {(error || result.warning) && <div className="log-error" role="alert">{error || result.warning}</div>}
     <div className="log-graph-help"><span><i className="graph-key-node" />{t('提交节点图例')}</span><span><i className="graph-key-edge" />{t('父提交图例')}</span><span title={t('父提交在当前列表外')}>{t('列表外')}</span></div>
     <div className="log-head-scroll" ref={headRef} style={{ width: viewportWidth || undefined }} onScroll={event => { if (scrollRef.current && scrollRef.current.scrollLeft !== event.currentTarget.scrollLeft) scrollRef.current.scrollLeft = event.currentTarget.scrollLeft; }}><div className="commit-table-head log-table-head" style={tableStyle}>{visibleColumns.map(header)}</div></div>
     <div className="commit-scroll" ref={scrollRef} aria-busy={loading} onScroll={event => { if (headRef.current && headRef.current.scrollLeft !== event.currentTarget.scrollLeft) headRef.current.scrollLeft = event.currentTarget.scrollLeft; }}>
-      {!!commits.length && <div className="log-rows" style={tableStyle}>{commits.map(commit => row(commit))}<div className="log-graph-viewport"><CommitGraph graph={graph} commits={commits} selected={selected} disabled={blocked || busy || loading} onSelect={onSelect} onParent={parentSelect} onContext={hash => { onSelect(hash); setMenu('more'); }} /></div></div>}
+      {!!commits.length && <div className="log-rows" style={tableStyle}>{commits.map(commit => row(commit))}<div className="log-graph-viewport"><CommitGraph graph={graph} commits={commits} selected={selected} disabled={blocked || busy || loading} onSelect={onSelect} onParent={parentSelect} onContext={hash => { onSelect(hash); if (!source) setMenu('more'); }} /></div></div>}
       {!commits.length && !loading && <div className="empty-state"><History size={27} /><strong>{filtered ? t('没有匹配的提交') : t('还没有提交')}</strong><p>{filtered ? t('调整筛选条件；搜索会查询仓库历史，而不局限于已加载记录。') : t('提交工作区更改后，历史会显示在这里。')}</p></div>}{loading && !commits.length && <div className="inline-loading"><Loader2 size={17} className="spin" />{t('查询仓库历史…')}</div>}{result.hasMore && <button className="load-more" disabled={loading} onClick={() => void loadMore()}>{t('加载更多提交')}</button>}
     </div>
-    <div className="history-bottom"><span>{loading ? <Loader2 size={11} className="spin" /> : <span className="live-dot" />}{commits.length} {t('条提交')}{filtered && ` · ${t('已筛选')}`}{result.hasMore && ` · ${t('还有更多')}`}</span><span>{filter.branch || t('所有分支')} · {filter.order === 'date' ? t('日期排序') : t('拓扑排序')}</span></div>
+    <div className="history-bottom"><span>{loading ? <Loader2 size={11} className="spin" /> : <span className="live-dot" />}{commits.length} {t('条提交')}{filtered && ` · ${t('已筛选')}`}{result.hasMore && ` · ${t('还有更多')}`}</span><span>{(filter.branch && source ? source.refLabel(filter.branch) : filter.branch) || t('所有分支')} · {filter.order === 'date' ? t('日期排序') : t('拓扑排序')}</span></div>
   </section>;
 }

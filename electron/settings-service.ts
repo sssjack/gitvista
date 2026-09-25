@@ -45,7 +45,7 @@ export function normalizeSettings(value: unknown): AppSettings {
     const key = process.platform === 'win32' ? directory.toLowerCase() : directory;
     if (seen.has(key)) continue;
     seen.add(key);
-    repos.push({ path: directory, name: typeof item.name === 'string' && item.name ? item.name : path.basename(directory), lastOpened: typeof item.lastOpened === 'string' ? item.lastOpened : '' });
+    repos.push({ path: directory, name: typeof item.name === 'string' && item.name ? item.name : path.basename(directory), lastOpened: typeof item.lastOpened === 'string' ? item.lastOpened : '', ...(item.kind === 'workspace' ? { kind: 'workspace' as const } : {}) });
     if (repos.length >= 30) break;
   }
   const selected = typeof source.lastRepo === 'string' ? repos.find(repo => {

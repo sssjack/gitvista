@@ -11,12 +11,21 @@ export interface GitSnapshot { root: string; name: string; branch: string; upstr
 export interface DiffResult { text: string; binary: boolean; truncated: boolean }
 export interface CommitDetail { commit: GitCommit; body: string; files: { path: string; oldPath?: string; status: string; additions: string; deletions: string }[]; root: string; branches: string[]; inCurrentBranch: boolean }
 export interface GitLogOptions { text?: string; regex?: boolean; matchCase?: boolean; branch?: string; author?: string; since?: string; until?: string; paths?: string[]; order?: 'date' | 'topo'; firstParent?: boolean; noMerges?: boolean; skip?: number; limit?: number }
-export interface GitLogResult { commits: GitCommit[]; hasMore: boolean; nextSkip: number }
+export interface GitLogResult { commits: GitCommit[]; hasMore: boolean; nextSkip: number; warning?: string }
 export interface GitQuery { type: 'snapshot' | 'status' | 'log' | 'resolveRef' | 'logAuthors' | 'diff' | 'commit' | 'blame' | 'fileHistory' | 'reflog' | 'compare' | 'submodules' | 'fileContent' | 'tree' | 'pushPreview'; remote?: string; base?: string; path?: string; staged?: boolean; ref?: string; to?: string; search?: string; author?: string; limit?: number; log?: GitLogOptions }
 export type GitActionType = 'stage' | 'unstage' | 'commit' | 'fetch' | 'pull' | 'push' | 'switch' | 'branchCreate' | 'branchRename' | 'branchDelete' | 'merge' | 'rebase' | 'cherryPick' | 'revert' | 'revertFile' | 'writeCommitGraph' | 'reset' | 'stashSave' | 'stashApply' | 'stashPop' | 'stashDrop' | 'tagCreate' | 'tagDelete' | 'remoteAdd' | 'remoteRemove' | 'remoteSetUrl' | 'discard' | 'resolve' | 'continue' | 'abort' | 'skip' | 'applyPatch' | 'ignore' | 'worktreeAdd' | 'worktreeRemove' | 'submoduleUpdate' | 'saveFile';
 export interface GitAction { type: GitActionType; paths?: string[]; path?: string; ref?: string; name?: string; message?: string; remote?: string; url?: string; mode?: string; content?: string; amend?: boolean; signoff?: boolean; force?: boolean; rebase?: boolean; includeUntracked?: boolean; staged?: boolean; expectedHead?: string; }
 export interface ActionResult { output: string }
-export interface RepoEntry { path: string; name: string; lastOpened: string }
+export interface RepoEntry { path: string; name: string; lastOpened: string; kind?: 'workspace' }
+export interface WorkspaceScan { root: string; repositories: RepoEntry[]; warnings: string[]; truncated: boolean }
+export interface WorkspaceRepository { entry: RepoEntry; snapshot?: GitSnapshot; error?: string }
+export interface WorkspaceOverview { scan: WorkspaceScan; repositories: WorkspaceRepository[] }
+export interface WorkspaceFileEntry { path: string; name: string; type: 'directory' | 'file' | 'link' }
+export interface WorkspaceDirectory { entries: WorkspaceFileEntry[]; truncated: boolean }
+export interface WorkspacePushItem { repo: string; preview?: PushPreview; files: GitFile[]; error?: string }
+export interface WorkspacePushPlan { id: string; includeChanges: boolean; items: WorkspacePushItem[] }
+export interface WorkspaceProgress { root: string; repo: string; operation: 'fetch' | 'pull' | 'push'; status: 'running' | 'success' | 'failed' | 'skipped'; output: string; commitHash?: string }
+export interface WorkspaceBatch { operation: 'fetch' | 'pull' | 'push'; repos: string[]; planId?: string; message?: string }
 export type AppTheme = 'dark' | 'light' | 'midnight' | 'nord' | 'forest' | 'rose' | 'darcula' | 'deep';
 export type AppLanguage = 'en' | 'zh';
 export interface AppPreferences { language: AppLanguage; theme: AppTheme; gitPath: string; pullStrategy: 'ff-only' | 'merge' | 'rebase'; diffView: 'split' | 'unified'; codeFontSize: number; wordWrap: boolean }
@@ -43,7 +52,14 @@ export interface GitVistaApi {
   testGitPath(gitPath: string): Promise<{ version: string }>;
   getGitIdentity(repo: string): Promise<GitIdentity>;
   setGitIdentity(repo: string, identity: GitIdentityUpdate): Promise<GitIdentity>;
-  openRepository(path?: string): Promise<RepoEntry | null>;
+  openRepository(path?: string, singleRepository?: boolean): Promise<RepoEntry | null>;
+  openWorkspace(path?: string): Promise<RepoEntry | null>;
+  workspaceOverview(root: string): Promise<WorkspaceOverview>;
+  workspaceDirectory(root: string, relative?: string): Promise<WorkspaceDirectory>;
+  workspaceFile(root: string, relative: string): Promise<string>;
+  workspacePushPreview(root: string, repos: string[], includeChanges: boolean): Promise<WorkspacePushPlan>;
+  workspaceBatch(root: string, request: WorkspaceBatch): Promise<WorkspaceProgress[]>;
+  onWorkspaceProgress(listener: (progress: WorkspaceProgress) => void): () => void;
   forgetRepository(path: string): Promise<void>;
   cloneRepository(url: string, parent?: string, name?: string, credentials?: RepositoryCredentials): Promise<RepoEntry | null>;
   chooseDirectory(): Promise<string | null>;
