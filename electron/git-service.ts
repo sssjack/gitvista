@@ -1,9 +1,11 @@
+import { resolveGit, gitEnvironment } from './git-runtime';
 import { spawn } from 'node:child_process';
 import { isUtf8 } from 'node:buffer';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { ActionResult, CommitDetail, DiffResult, GitAction, GitCommit, GitIdentity, GitIdentityUpdate, GitQuery, GitRemote, GitSnapshot, GitTreeEntry, IdentityFields, RepoEntry } from '../shared/types';
-import { COMMIT_FORMAT, parseBranches, parseCommits, parseNameStatus, parseNumstat, parseStashes, parseStatus, parseTags, parseWorktrees } from './git-parse';
+import { msgf } from '../shared/messages';
+import type { AppLanguage, ActionResult, PushPreview, CommitDetail, DiffResult, GitAction, GitCommit, GitIdentity, GitIdentityUpdate, GitLogOptions, GitLogResult, GitQuery, GitRemote, GitSnapshot, GitTreeEntry, GitWorkingState, IdentityFields, RepoEntry } from '../shared/types';
+import { COMMIT_FORMAT, parseBranches, parseCommits, parseNameChanges, parseNumstat, parseStashes, parseStatus, parseTags, parseWorktrees } from './git-parse';
 import { normalizeGitPath } from './settings-service';
 
 const MAX_OUTPUT = 16 * 1024 * 1024;
@@ -12,7 +14,9 @@ const MAX_FILE = 4 * 1024 * 1024;
 const DEFAULT_TIMEOUT = 45_000;
 const NETWORK_TIMEOUT = 300_000;
 const queues = new Map<string, Promise<unknown>>();
+const pendingRoots = new Map<string, Promise<string>>();
 let gitExecutable = 'git';
+let versionCache: { executable: string; value: Promise<string> } | undefined;
 const GLOBAL_ARGS = ['--no-pager', '--literal-pathspecs', '-c', 'color.ui=false', '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false', '-c', 'credential.interactive=false'];
 
 interface RunOptions { input?: string; timeout?: number; allowCodes?: number[]; maxOutput?: number; requireUtf8?: boolean; executable?: string }
@@ -27,7 +31,7 @@ function run(cwd: string, args: string[], options: RunOptions = {}): Promise<Run
     const child = spawn(options.executable || gitExecutable, [...GLOBAL_ARGS, ...args], {
       cwd, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
       env: {
-        ...process.env, LC_ALL: 'C', LANG: 'C', GIT_TERMINAL_PROMPT: '0',
+        ...gitEnvironment(options.executable || gitExecutable), LC_ALL: 'C', LANG: 'C', GIT_TERMINAL_PROMPT: '0',
         GCM_INTERACTIVE: 'Never', GIT_OPTIONAL_LOCKS: '0', GIT_EDITOR: 'true', GIT_SEQUENCE_EDITOR: 'true',
         GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND || 'ssh -o BatchMode=yes',
       },
@@ -69,6 +73,10 @@ function run(cwd: string, args: string[], options: RunOptions = {}): Promise<Run
       const result = { stdout: rawOutput.toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8'), code: code ?? -1 };
       if (result.code !== 0 && !(options.allowCodes || []).includes(result.code)) {
         const detail = cleanError(result.stderr || result.stdout);
+        if (/(?:unable to read tree|bad tree object|missing (?:tree|blob) object)/i.test(detail)) {
+          reject(new Error(`此历史版本引用的 Git 对象不可读取，无法显示完整差异。可先查看其他提交或工作区文件；请确认仓库对象完整后重试。\n${detail}`));
+          return;
+        }
         reject(new Error(`Git 操作失败（${args[0]}，退出码 ${result.code}）：${detail || '请检查仓库状态。'}`));
         return;
       }
@@ -82,12 +90,22 @@ async function output(repo: string, args: string[], options?: RunOptions): Promi
   return (await run(repo, args, options)).stdout;
 }
 
-export function configureGitExecutable(value: string): void {
-  gitExecutable = normalizeGitPath(value);
+export async function configureGitExecutable(value: string): Promise<void> {
+  gitExecutable = await resolveGit(normalizeGitPath(value));
+  if (versionCache?.executable !== gitExecutable) versionCache = undefined;
+}
+
+function gitVersion(repo: string): Promise<string> {
+  if (versionCache?.executable === gitExecutable) return versionCache.value;
+  const executable = gitExecutable;
+  const value = output(repo, ['--version'], { executable }).then(result => result.trim());
+  versionCache = { executable, value };
+  void value.catch(() => { if (versionCache?.value === value) versionCache = undefined; });
+  return value;
 }
 
 export async function testGitExecutable(value: string): Promise<{ version: string }> {
-  const executable = normalizeGitPath(value);
+  const executable = await resolveGit(normalizeGitPath(value));
   if (executable !== 'git') {
     try {
       if (!(await fs.stat(executable)).isFile()) throw new Error('所选路径不是文件。');
@@ -175,15 +193,24 @@ function pathInside(root: string, candidate: string): boolean {
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }
 
-async function noSymlink(absolute: string, boundary?: string): Promise<void> {
+async function noSymlink(absolute: string, boundary?: string, checked?: Map<string, Promise<void>>): Promise<void> {
   let cursor = absolute;
   while (true) {
-    try {
-      const stat = await fs.lstat(cursor);
-      if (stat.isSymbolicLink()) throw new Error('为避免写入仓库外部，不能操作符号链接或目录联接。');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    const key = process.platform === 'win32' ? cursor.toLowerCase() : cursor;
+    let check = checked?.get(key);
+    if (!check) {
+      const current = cursor;
+      check = (async () => {
+        try {
+          const stat = await fs.lstat(current);
+          if (stat.isSymbolicLink()) throw new Error('为避免写入仓库外部，不能操作符号链接或目录联接。');
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+      })();
+      checked?.set(key, check);
     }
+    await check;
     if (boundary && path.relative(boundary, cursor) === '') return;
     const parent = path.dirname(cursor);
     if (parent === cursor) return;
@@ -191,29 +218,39 @@ async function noSymlink(absolute: string, boundary?: string): Promise<void> {
   }
 }
 
-async function safePath(repo: string, value: unknown, allowRoot = false): Promise<string> {
+async function safePath(repo: string, value: unknown, allowRoot = false, checked?: Map<string, Promise<void>>): Promise<string> {
   const candidate = required(value, '文件路径', 8192).replace(/\\/g, '/');
   if (path.isAbsolute(candidate) || /^[a-z]:/i.test(candidate) || candidate.includes(':') || candidate.split('/').some(segment => segment.toLowerCase().replace(/[. ]+$/, '') === '.git' || segment.toLowerCase() === '.git')) {
     throw new Error('只能操作仓库内的普通文件，不能访问 .git 或绝对路径。');
   }
   const absolute = path.resolve(repo, candidate);
   if (!pathInside(repo, absolute) || (!allowRoot && path.relative(repo, absolute) === '')) throw new Error('文件路径不能越过仓库目录。');
-  await noSymlink(absolute, repo);
+  await noSymlink(absolute, repo, checked);
   return path.relative(repo, absolute).split(path.sep).join('/') || '.';
 }
 
 async function safePaths(repo: string, values: unknown): Promise<string[]> {
   if (!Array.isArray(values) || values.length === 0 || values.length > 10_000) throw new Error('请先选择文件（最多 10000 个）。');
-  return [...new Set(await Promise.all(values.map(value => safePath(repo, value))))];
+  // 仅在本次批量校验内复用父目录检查，避免大量同目录文件反复访问磁盘；不跨操作缓存安全状态。
+  const checked = new Map<string, Promise<void>>();
+  return [...new Set(await Promise.all([...new Set(values)].map(value => safePath(repo, value, false, checked))))];
 }
 
 async function rootOf(directory: string): Promise<string> {
   const candidate = path.resolve(required(directory, '仓库目录', 8192));
-  const result = await output(candidate, ['rev-parse', '--show-toplevel']);
-  const root = await fs.realpath(result.trim());
-  const bare = (await output(root, ['rev-parse', '--is-bare-repository'])).trim();
-  if (bare === 'true') throw new Error('请选择带工作区的 Git 仓库，当前版本不直接编辑裸仓库。');
-  return root;
+  const key = `${gitExecutable}\0${process.platform === 'win32' ? candidate.toLowerCase() : candidate}`;
+  const pending = pendingRoots.get(key);
+  if (pending) return pending;
+  // 合并两个 rev-parse，并只共享并行校验；不长期缓存目录，避免仓库移走或被替换后继续使用旧根目录。
+  const task = (async () => {
+    const result = (await output(candidate, ['rev-parse', '--show-toplevel', '--is-bare-repository'])).trimEnd().split(/\r?\n/);
+    const bare = result.pop();
+    if (bare === 'true') throw new Error('请选择带工作区的 Git 仓库，当前版本不直接编辑裸仓库。');
+    if (bare !== 'false' || !result.length) throw new Error('无法确认 Git 仓库的工作区目录。');
+    return fs.realpath(result.join('\n'));
+  })();
+  pendingRoots.set(key, task);
+  try { return await task; } finally { if (pendingRoots.get(key) === task) pendingRoots.delete(key); }
 }
 
 function serialized<T>(repo: string, work: () => Promise<T>): Promise<T> {
@@ -235,25 +272,32 @@ async function exists(candidate: string): Promise<boolean> {
 }
 
 async function operation(repo: string): Promise<string> {
-  const markerNames = ['rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'BISECT_LOG'];
-  const markerPaths = await Promise.all(markerNames.map(name => output(repo, ['rev-parse', '--git-path', name])));
-  const markers = await Promise.all(markerPaths.map(value => exists(path.resolve(repo, value.trim()))));
+  const markerNames = ['rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'BISECT_LOG', 'rebase-apply/applying', 'sequencer/todo'];
+  // --git-path 保留 linked worktree 的路径语义，一次定位所有标记，减少 Windows 上启动 Git 的成本。
+  const markerPaths = (await output(repo, ['rev-parse', ...markerNames.flatMap(name => ['--git-path', name])])).trimEnd().split(/\r?\n/).map(value => path.resolve(repo, value));
+  if (markerPaths.length !== markerNames.length) throw new Error('无法读取完整的 Git 操作状态路径。');
+  const markers = await Promise.all(markerPaths.slice(0, 7).map(value => exists(value)));
   if (markers[0]) return 'rebase';
   if (markers[1]) {
-    const applying = (await output(repo, ['rev-parse', '--git-path', 'rebase-apply/applying'])).trim();
-    return await exists(path.resolve(repo, applying)) ? 'am' : 'rebase';
+    return markers[6] ? 'am' : 'rebase';
   }
   if (markers[2]) return 'merge';
   if (markers[3]) return 'cherry-pick';
   if (markers[4]) return 'revert';
   if (markers[5]) return 'bisect';
-  const sequencerPath = (await output(repo, ['rev-parse', '--git-path', 'sequencer/todo'])).trim();
   try {
-    const todo = await fs.readFile(path.resolve(repo, sequencerPath), 'utf8');
+    const todo = await fs.readFile(markerPaths[7], 'utf8');
     if (todo.startsWith('pick ')) return 'cherry-pick';
     if (todo.startsWith('revert ')) return 'revert';
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   return '';
+}
+
+async function workingState(repo: string): Promise<GitWorkingState> {
+  const [statusText, currentOperation] = await Promise.all([
+    output(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=all']), operation(repo),
+  ]);
+  return { files: parseStatus(statusText).files, operation: currentOperation };
 }
 
 function logArgs(request: GitQuery): string[] {
@@ -264,28 +308,110 @@ function logArgs(request: GitQuery): string[] {
   return args;
 }
 
+function logNumber(value: unknown, fallback: number, minimum: number, maximum: number, label: string): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < minimum || value > maximum) throw new Error(`${label}不正确。`);
+  return value;
+}
+
+function logDate(value: unknown, label: string, endOfDay: boolean): string | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`${label}必须为 YYYY-MM-DD。`);
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime()) || date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) throw new Error(`${label}不是有效日期。`);
+  if (endOfDay) date.setHours(23, 59, 59, 999);
+  return date.toISOString();
+}
+
+function escapeRegex(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+async function commitSummary(repo: string, requested: unknown): Promise<GitCommit> {
+  const hash = await commitRef(repo, requested);
+  return parseCommits(await output(repo, ['show', '-s', `--format=${COMMIT_FORMAT}`, hash, '--']))[0];
+}
+
+async function logHistory(repo: string, value?: GitLogOptions): Promise<GitLogResult> {
+  if (value !== undefined && (!value || typeof value !== 'object' || Array.isArray(value))) throw new Error('日志筛选条件不正确。');
+  const options = value || {};
+  const limit = logNumber(options.limit, 250, 1, 500, '每页提交数');
+  const skip = logNumber(options.skip, 0, 0, 10_000_000, '日志分页位置');
+  for (const flag of ['regex', 'matchCase', 'firstParent', 'noMerges'] as const) {
+    if (options[flag] !== undefined && typeof options[flag] !== 'boolean') throw new Error('日志筛选开关不正确。');
+  }
+  if (options.order !== undefined && options.order !== 'date' && options.order !== 'topo') throw new Error('不支持的日志排序。');
+  const since = logDate(options.since, '开始日期', false);
+  const until = logDate(options.until, '结束日期', true);
+  if (since && until && since > until) throw new Error('开始日期不能晚于结束日期。');
+  const text = options.text === undefined || options.text === '' ? '' : required(options.text, '搜索内容', 1000).trim();
+  const author = options.author === undefined || options.author === '' ? '' : required(options.author, '作者', 1000).trim();
+  const selectedPaths = options.paths === undefined || (Array.isArray(options.paths) && options.paths.length === 0) ? [] : await safePaths(repo, options.paths);
+  const branch = options.branch ? await commitRef(repo, options.branch) : undefined;
+  const revisions = branch ? [branch] : ['--all'];
+  const filters = [options.order === 'topo' ? '--topo-order' : '--date-order', options.regex ? '--extended-regexp' : '--fixed-strings'];
+  if (!options.matchCase) filters.push('--regexp-ignore-case');
+  if (author) filters.push(`--author=${options.regex ? escapeRegex(author) : author}`);
+  if (since) filters.push(`--since-as-filter=${since}`);
+  if (until) filters.push(`--until=${until}`);
+  if (options.firstParent) filters.push('--first-parent');
+  if (options.noMerges) filters.push('--no-merges');
+  // 哈希定位在 Git 端验证可达范围；不能只在已加载的一页提交中查找。
+  let hashMatch: string | undefined;
+  if (text && !options.regex && /^[a-f0-9]{4,64}$/i.test(text)) {
+    const resolved = await run(repo, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${text}^{commit}`], { allowCodes: [1, 128] });
+    if (resolved.code === 0) hashMatch = resolved.stdout.trim();
+  }
+  if (hashMatch) {
+    let reachable: boolean;
+    if (branch) reachable = (await run(repo, ['merge-base', '--is-ancestor', hashMatch, branch], { allowCodes: [1] })).code === 0;
+    else {
+      const containing = await output(repo, ['for-each-ref', '--count=1', `--contains=${hashMatch}`, '--format=%(refname)']);
+      reachable = !!containing.trim() || ((await hasHead(repo)) && (await run(repo, ['merge-base', '--is-ancestor', hashMatch, 'HEAD'], { allowCodes: [1] })).code === 0);
+    }
+    if (reachable && options.firstParent) {
+      const ancestors = await output(repo, ['rev-list', '--first-parent', ...revisions, '--']);
+      reachable = ancestors.split('\n').includes(hashMatch);
+    }
+    if (!reachable || skip > 0) return { commits: [], hasMore: false, nextSkip: skip };
+    // ^! 仅包含该提交，仍让 Git 应用路径过滤；--no-walk 会绕过路径简化。
+    const commits = parseCommits(await output(repo, ['log', '--max-count=1', ...filters, '--decorate=short', `--format=${COMMIT_FORMAT}`, `${hashMatch}^!`, '--', ...selectedPaths]));
+    return { commits, hasMore: false, nextSkip: skip + commits.length };
+  }
+  if (text) filters.push(`--grep=${text}`);
+  const all = parseCommits(await output(repo, ['log', `--max-count=${limit + 1}`, `--skip=${skip}`, ...filters, '--decorate=short', `--format=${COMMIT_FORMAT}`, ...revisions, '--', ...selectedPaths]));
+  const commits = all.slice(0, limit);
+  return { commits, hasMore: all.length > limit, nextSkip: skip + commits.length };
+}
+
 async function remoteList(repo: string): Promise<GitRemote[]> {
-  const names = (await output(repo, ['remote'])).split('\n').filter(Boolean);
-  return Promise.all(names.map(async name => {
-    const [fetch, push] = await Promise.all([
-      output(repo, ['remote', 'get-url', name]), output(repo, ['remote', 'get-url', '--push', name]),
-    ]);
-    return { name, fetch: cleanError(fetch), push: cleanError(push) };
-  }));
+  const remotes = new Map<string, GitRemote>();
+  for (const line of (await output(repo, ['remote', '-v'])).split(/\r?\n/)) {
+    const match = /^(\S+)\t(.*) \((fetch|push)\)$/.exec(line);
+    if (!match) continue;
+    const [, name, url, direction] = match;
+    const remote = remotes.get(name) || { name, fetch: '', push: '' };
+    // 与 get-url 的默认行为一致，显示每个方向的首个地址（Git 已应用 insteadOf 重写）。
+    if (!remote[direction as 'fetch' | 'push']) remote[direction as 'fetch' | 'push'] = cleanError(url);
+    remotes.set(name, remote);
+  }
+  return [...remotes.values()];
 }
 
 async function snapshot(repo: string, request: GitQuery): Promise<GitSnapshot> {
-  const hasCommit = await hasHead(repo);
+  const limit = Math.min(500, Math.max(1, Math.floor(Number(request.limit) || 200)));
+  const historyArgs = logArgs(request).map(value => value === '--date-order' ? '--topo-order' : value.startsWith('--max-count=') ? `--max-count=${limit + 1}` : value);
   const [statusText, branchText, logText, stashText, tagText, remotes, worktreeText, currentOperation, version] = await Promise.all([
     output(repo, ['status', '--porcelain=v1', '-z', '--branch', '--untracked-files=all']),
     output(repo, ['for-each-ref', '--sort=-committerdate', '--format=%(refname)%00%(HEAD)%00%(upstream:short)%00%(objectname)%00%(subject)%00%(symref)', 'refs/heads', 'refs/remotes']),
-    hasCommit ? output(repo, ['log', ...logArgs(request), '--all', '--']) : Promise.resolve(''),
+    output(repo, ['log', ...historyArgs, '--all', '--']),
     output(repo, ['stash', 'list', '--format=%gd%x00%H%x00%gs%x00%aI%x1e']),
     output(repo, ['for-each-ref', '--sort=-creatordate', '--format=%(refname:short)%00%(objectname)%00%(subject)', 'refs/tags']),
-    remoteList(repo), output(repo, ['worktree', 'list', '--porcelain', '-z']), operation(repo), output(repo, ['--version']),
+    remoteList(repo), output(repo, ['worktree', 'list', '--porcelain', '-z']), operation(repo), gitVersion(repo),
   ]);
+  const commits = parseCommits(logText);
   return {
-    root: repo, name: path.basename(repo), ...parseStatus(statusText), commits: parseCommits(logText),
+    root: repo, name: path.basename(repo), ...parseStatus(statusText), commits: commits.slice(0, limit),
+    commitsHasMore: commits.length > limit, commitsOrder: 'topo',
     branches: parseBranches(branchText), stashes: parseStashes(stashText), tags: parseTags(tagText), remotes,
     worktrees: parseWorktrees(worktreeText), operation: currentOperation, gitVersion: version.trim(),
   };
@@ -300,6 +426,11 @@ function diffResult(text: string): DiffResult {
 async function fileDiff(repo: string, request: GitQuery): Promise<DiffResult> {
   const selected = request.path ? await safePath(repo, request.path) : undefined;
   const diffFlags = ['--no-ext-diff', '--no-textconv', '--find-renames', '--no-color', '--unified=5'];
+  if (request.base && request.ref) {
+    const base = await output(repo, ['rev-parse', '--verify', '--end-of-options', `${ref(request.base)}^{tree}`]);
+    const target = await commitRef(repo, request.ref);
+    return diffResult(await output(repo, ['diff', ...diffFlags, base.trim(), target, '--', ...(selected ? [selected] : [])]));
+  }
   if (request.ref) {
     const hash = await commitRef(repo, request.ref);
     return diffResult(await output(repo, ['show', '--format=', '--first-parent', ...diffFlags, hash, '--', ...(selected ? [selected] : [])]));
@@ -321,14 +452,21 @@ async function fileDiff(repo: string, request: GitQuery): Promise<DiffResult> {
 
 async function commitDetail(repo: string, requested: string | undefined): Promise<CommitDetail> {
   const hash = await commitRef(repo, requested, 'HEAD');
-  const [summary, body, stats, names] = await Promise.all([
+  const [summary, body, stats, names, branchNames, hasCommit] = await Promise.all([
     output(repo, ['show', '-s', `--format=${COMMIT_FORMAT}`, hash, '--']),
     output(repo, ['show', '-s', '--format=%B', hash, '--']),
-    output(repo, ['show', '--format=', '--first-parent', '--numstat', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', hash, '--']),
-    output(repo, ['show', '--format=', '--first-parent', '--name-status', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', hash, '--']),
+    output(repo, ['show', '--format=', '--first-parent', '--diff-merges=first-parent', '--numstat', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', hash, '--']),
+    output(repo, ['show', '--format=', '--first-parent', '--diff-merges=first-parent', '--name-status', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', hash, '--']),
+    output(repo, ['for-each-ref', `--contains=${hash}`, '--format=%(refname)', 'refs/heads', 'refs/remotes']),
+    hasHead(repo),
   ]);
-  const statuses = parseNameStatus(names);
-  return { commit: parseCommits(summary)[0], body: body.trimEnd(), files: parseNumstat(stats).map(file => ({ ...file, status: statuses.get(file.path) || 'M' })) };
+  const changes = new Map(parseNameChanges(names).map(file => [file.path, file]));
+  const inCurrentBranch = hasCommit && (await run(repo, ['merge-base', '--is-ancestor', hash, 'HEAD'], { allowCodes: [1] })).code === 0;
+  return {
+    commit: parseCommits(summary)[0], body: body.trimEnd(), root: repo,
+    branches: branchNames.split('\n').filter(Boolean).map(name => name.replace(/^refs\/(heads|remotes)\//, '')), inCurrentBranch,
+    files: parseNumstat(stats).map(file => ({ ...file, ...(changes.get(file.path) || { status: 'M' }) })),
+  };
 }
 
 export async function query(directory: string, request: GitQuery): Promise<unknown> {
@@ -337,6 +475,15 @@ export async function query(directory: string, request: GitQuery): Promise<unkno
   await waitForMutation(repo);
   switch (request.type) {
     case 'snapshot': return snapshot(repo, request);
+    case 'pushPreview': return pushPreview(repo, request.remote);
+    case 'status': return workingState(repo);
+    case 'log': return logHistory(repo, request.log);
+    case 'resolveRef': return commitSummary(repo, request.ref);
+    case 'logAuthors': {
+      // 用原始作者字段分组，避免 shortlog 的默认 mailmap 名称与 --author 筛选不一致。
+      const authors = await output(repo, ['shortlog', '-s', '--group=format:%an <%ae>', '--all']);
+      return [...new Set(authors.split('\n').map(line => line.replace(/^\s*\d+\s+/, '').trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+    }
     case 'tree': {
       if (!request.ref && !(await hasHead(repo))) return [];
       const hash = await commitRef(repo, request.ref, 'HEAD');
@@ -440,16 +587,19 @@ function selectedMode(value: unknown, allowed: string[], fallback: string): stri
 }
 
 async function selectedFiles(repo: string, request: GitAction, filter?: 'staged' | 'unstaged'): Promise<string[]> {
-  const status = parseStatus(await output(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=all']));
+  const hasExplicitPaths = request.paths !== undefined || !!request.path;
+  // 显式文件已由调用方选择，只需已跟踪状态配对重命名，不必扫描其他未跟踪目录。
+  const status = parseStatus(await output(repo, ['status', '--porcelain=v1', '-z', hasExplicitPaths ? '--untracked-files=no' : '--untracked-files=all']));
   const includePreviousPath = (file: typeof status.files[number]): boolean => !!file.oldPath
-    && (request.type === 'stage' ? file.worktree === 'R'
+    && (request.type === 'commit' ? (file.index === 'R' || file.worktree === 'R') : request.type === 'stage' ? file.worktree === 'R'
       : (request.type === 'unstage' || (request.type === 'discard' && !!request.staged)) && file.index === 'R');
-  if (request.paths !== undefined || request.path) {
+  if (hasExplicitPaths) {
     const explicit = await safePaths(repo, request.paths !== undefined ? request.paths : [request.path]);
     // Git 的 -z 重命名记录给出新旧路径，暂存区的两端必须一起处理。
-    if (request.type === 'stage' || request.type === 'unstage' || (request.type === 'discard' && request.staged)) {
-      const previousPaths = status.files.filter(file => includePreviousPath(file) && explicit.includes(file.path)).map(file => file.oldPath!);
-      return safePaths(repo, [...explicit, ...previousPaths]);
+    if (request.type === 'commit' || request.type === 'stage' || request.type === 'unstage' || (request.type === 'discard' && request.staged)) {
+      const selected = new Set(explicit);
+      const previousPaths = status.files.filter(file => includePreviousPath(file) && selected.has(file.path)).map(file => file.oldPath!).filter(value => !selected.has(value));
+      return previousPaths.length ? [...new Set([...explicit, ...await safePaths(repo, previousPaths)])] : explicit;
     }
     return explicit;
   }
@@ -490,6 +640,44 @@ async function ensureEmptyTarget(target: string): Promise<void> {
   }
 }
 
+async function revertFile(repo: string, request: GitAction): Promise<ActionResult> {
+  const selected = await safePath(repo, request.path);
+  const hash = await commitRef(repo, request.ref);
+  if (await operation(repo)) throw new Error('请先完成或中止当前 Git 操作，再撤销历史文件改动。');
+  const diffOptions = ['--format=', '--first-parent', '--diff-merges=first-parent', '--find-renames', '--no-ext-diff', '--no-textconv'];
+  const names = await output(repo, ['show', ...diffOptions, '--name-status', '-z', hash, '--']);
+  const change = parseNameChanges(names).find(file => file.path === selected);
+  if (!change) throw new Error('所选文件不在该提交的改动列表中。');
+  if (!/^[AMDR]\d*$/.test(change.status)) throw new Error('此类型的文件改动暂不支持安全撤销，请使用 Git 命令行处理。');
+  const files = await safePaths(repo, [change.path, ...(change.oldPath ? [change.oldPath] : [])]);
+  const status = parseStatus(await output(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching']));
+  if (status.files.some(file => file.conflict)) throw new Error('仓库中仍有冲突，请先解决冲突。');
+  const overlaps = (left: string, right: string) => {
+    const normalize = (value: string) => process.platform === 'win32' ? value.toLowerCase() : value;
+    const a = normalize(left); const b = normalize(right);
+    return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+  };
+  if (status.files.some(file => files.some(selectedPath => overlaps(file.path.replace(/\/$/, ''), selectedPath) || (!!file.oldPath && overlaps(file.oldPath, selectedPath))))) {
+    throw new Error('所选文件或重命名前路径存在未提交、未跟踪或忽略的本地内容，请先提交或储藏后再撤销。');
+  }
+  for (const file of files) {
+    const absolute = path.join(repo, file);
+    if (await exists(absolute)) {
+      if (!(await fs.stat(absolute)).isFile()) throw new Error('只能撤销普通文件，不能覆盖目录。');
+    }
+  }
+  const scoped = parseNameChanges(await output(repo, ['show', ...diffOptions, '--name-status', '-z', hash, '--', ...files]));
+  if (scoped.length !== 1 || scoped[0].path !== change.path || scoped[0].oldPath !== change.oldPath) throw new Error('无法将此次变更安全限定为一个文件，请使用 Git 命令行处理。');
+  const patch = await output(repo, ['show', ...diffOptions, '--binary', '--full-index', '--src-prefix=a/', '--dst-prefix=b/', hash, '--', ...files], { requireUtf8: true });
+  if (!patch.trim()) throw new Error('该文件没有可撤销的补丁。');
+  if (/^(?:old mode|new mode|new file mode|deleted file mode) (?:120000|160000)$/m.test(patch) || /^index [^\r\n]+ (?:120000|160000)$/m.test(patch)) {
+    throw new Error('符号链接和子模块改动不能通过文件撤销功能修改。');
+  }
+  await run(repo, ['apply', '--reverse', '--check', '--whitespace=nowarn', '-'], { input: patch });
+  await run(repo, ['apply', '--reverse', '--whitespace=nowarn', '-'], { input: patch });
+  return { output: `已在工作区撤销 ${selected} 于 ${hash.slice(0, 8)} 的改动（合并提交相对首个父提交），请检查差异后自行暂存、提交。` };
+}
+
 export async function action(directory: string, request: GitAction): Promise<ActionResult> {
   if (!request || typeof request !== 'object') throw new Error('操作参数不正确。');
   const repo = await rootOf(directory);
@@ -509,7 +697,10 @@ export async function action(directory: string, request: GitAction): Promise<Act
       }
       case 'commit': {
         const message = required(request.message, '提交说明', 50_000);
-        result = await run(repo, ['commit', '--file=-', ...(request.amend ? ['--amend'] : []), ...(request.signoff ? ['--signoff'] : [])], { input: message, timeout: NETWORK_TIMEOUT });
+        const selected = request.paths ? await selectedFiles(repo, request) : undefined;
+        if (selected && !selected.length) throw new Error('请选择要提交的文件。');
+        if (selected) await runFiles(repo, ['add', '--all'], selected);
+        result = await run(repo, ['commit', ...(selected ? ['--only'] : []), '--file=-', ...(request.amend ? ['--amend'] : []), ...(request.signoff ? ['--signoff'] : []), ...(selected ? ['--', ...selected] : [])], { input: message, timeout: NETWORK_TIMEOUT });
         break;
       }
       case 'fetch': {
@@ -527,6 +718,13 @@ export async function action(directory: string, request: GitAction): Promise<Act
         break;
       }
       case 'push': {
+        if (request.expectedHead) {
+          const current = await pushPreview(repo, request.remote);
+          if (current.head !== request.expectedHead || current.branch !== request.ref || current.target !== request.name) throw new Error('待推送内容已变化，请刷新推送预览后重试。');
+          if (!current.total) throw new Error('没有待推送的提交。');
+          result = await run(repo, ['push', '--set-upstream', current.remote, `refs/heads/${current.branch}:refs/heads/${current.target}`], { timeout: NETWORK_TIMEOUT });
+          break;
+        }
         const mode = selectedMode(request.mode, ['default', 'set-upstream', 'tags'], 'default');
         const args = ['push', ...(request.force ? ['--force-with-lease'] : [])];
         if (mode === 'tags') {
@@ -578,6 +776,11 @@ export async function action(directory: string, request: GitAction): Promise<Act
       case 'rebase': result = await run(repo, ['rebase', await commitRef(repo, request.ref)], { timeout: NETWORK_TIMEOUT }); break;
       case 'cherryPick': result = await run(repo, ['cherry-pick', await commitRef(repo, request.ref)], { timeout: NETWORK_TIMEOUT }); break;
       case 'revert': result = await run(repo, ['revert', '--no-edit', await commitRef(repo, request.ref)], { timeout: NETWORK_TIMEOUT }); break;
+      case 'revertFile': return revertFile(repo, request);
+      case 'writeCommitGraph': {
+        await run(repo, ['commit-graph', 'write', '--reachable', '--changed-paths'], { timeout: NETWORK_TIMEOUT });
+        return { output: '已生成 Git 原生 commit-graph 与路径布隆过滤器，用于加速提交和文件历史查询；这不是 IDEA 专用的日志索引。' };
+      }
       case 'reset': {
         const mode = selectedMode(request.mode, ['soft', 'mixed', 'hard'], 'mixed');
         result = await run(repo, ['reset', `--${mode}`, await commitRef(repo, request.ref, 'HEAD')]);
@@ -755,4 +958,24 @@ export async function exportPatch(directory: string, requested?: string): Promis
   else args.push('--cached');
   args.push('--');
   return output(repo, args);
+}
+
+async function pushPreview(repo: string, requestedRemote?: string): Promise<PushPreview> {
+  const branch = (await output(repo, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { allowCodes: [1] })).trim();
+  if (!branch) throw new Error('请先切换到本地分支再推送。');
+  const tracking = (await output(repo, ['for-each-ref', '--format=%(upstream:remotename)%00%(upstream:remoteref)', 'refs/heads/' + branch])).trim().split('\0');
+  const remotes = (await output(repo, ['remote'])).trim().split('\n').filter(Boolean);
+  const remote = await knownRemote(repo, requestedRemote || (remotes.includes(tracking[0]) ? tracking[0] : remotes.includes('origin') ? 'origin' : remotes[0]));
+  const target = remote === tracking[0] && tracking[1]?.startsWith('refs/heads/') ? tracking[1].slice(11) : branch;
+  await branchName(repo, target);
+  const head = await commitRef(repo, 'HEAD');
+  const remoteRef = await run(repo, ['rev-parse', '--verify', '--quiet', '--end-of-options', 'refs/remotes/' + remote + '/' + target], { allowCodes: [1,128] });
+  const base = remoteRef.code === 0 ? remoteRef.stdout.trim() : (await output(repo, ['hash-object', '-t', 'tree', '--stdin'], { input: '' })).trim();
+  const revisions = remoteRef.code === 0 ? [base + '..' + head] : [head];
+  const [log, names, count] = await Promise.all([
+    output(repo, ['log', '--max-count=500', '--topo-order', '--format=' + COMMIT_FORMAT, ...revisions, '--']),
+    output(repo, ['diff', '--name-status', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', base, head, '--']),
+    output(repo, ['rev-list', '--count', ...revisions, '--']),
+  ]);
+  return { branch, remote, target, head, base, commits: parseCommits(log), files: parseNameChanges(names), total: Number(count.trim()) };
 }

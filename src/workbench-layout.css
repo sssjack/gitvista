@@ -1,0 +1,91 @@
+.workspace>.sidebar{max-width:none}
+.workspace>.changes-panel{max-width:none}
+.workspace>.main-workspace{min-width:0}
+.workspace .history-panel{flex-shrink:0}
+.workspace .diff-panel{min-height:0}
+.diff-panel>.panel-heading{height:auto;min-height:40px;flex-wrap:wrap;gap:4px}
+.diff-panel>.panel-heading .panel-heading-actions{flex-wrap:wrap;max-width:100%}
+.diff-filebar>.diff-file-path{min-width:0}
+.resize-handle{touch-action:none;outline-offset:-1px;z-index:4}
+.resize-handle.vertical{width:4px;margin:0;background:linear-gradient(90deg,transparent 1px,var(--border-soft) 1px,var(--border-soft) 2px,transparent 2px)}
+.resize-handle.horizontal{height:4px;margin:0;background:linear-gradient(transparent 1px,var(--border-soft) 1px,var(--border-soft) 2px,transparent 2px)}
+.resize-handle.vertical::after{left:-4px;right:-4px}
+.resize-handle.horizontal::after{top:-4px;bottom:-4px}
+.resize-handle:hover,.resize-handle.dragging,.resize-handle:focus-visible{background:var(--accent);opacity:.9}
+.change-groups{display:flex;flex-direction:column;flex:1;min-height:120px;overflow:hidden}
+.change-group{display:flex;flex-direction:column;min-height:55px;overflow:hidden}
+.unstaged-group{flex-shrink:1}.staged-group{flex:1}
+.change-group-title{flex-shrink:0;background:var(--panel-soft)}
+.change-group-list{min-height:0;overflow:auto;flex:1;scrollbar-gutter:stable}
+.change-row[aria-busy="true"]{background:var(--accent-bg)}
+.change-row[aria-busy="true"] .change-file{color:var(--accent)}
+.changes-panel>.commit-form{flex-shrink:0;display:flex;flex-direction:column;min-height:185px;overflow:auto}
+.changes-panel .commit-message{flex:1;min-height:48px;height:auto;max-height:none;resize:none}
+.changes-panel .commit-button,.changes-panel .commit-options,.changes-panel .commit-form-label,.changes-panel .commit-tip{flex-shrink:0}
+.commit-details-slot{flex-shrink:0;min-height:0;overflow:hidden}
+.commit-details-slot>.commit-information{max-height:none;height:100%;min-height:0;overflow:auto}
+.commit-files>.file-tree{min-height:45px}
+.commit-file-toolbar{flex-wrap:wrap}
+.change-group .staging-placeholder{padding:12px 8px;margin:4px 12px;font-size:11px}
+@media(max-width:1250px){.toolbar{gap:5px}.toolbar>.toolbar-divider{margin:0 2px}.theme-control select{max-width:82px}.sync-actions>button{padding:6px}.toolbar .repo-control{min-width:175px}}
+
+/* Code stays above the history dock; auxiliary tools share the left rail. */
+.workspace > .sidebar { display:flex; min-width:0; width:var(--side-width); border-right:0 }
+.workspace > .changes-panel { min-width:0; width:var(--side-width); border-left:0; flex-shrink:0 }
+.workspace > .main-workspace { min-width:0; flex:1 }
+.main-workspace > .diff-panel { flex:1; min-height:180px; border-bottom:0 }
+.main-workspace > .history-dock { flex-shrink:0; min-height:200px; display:flex; overflow:visible; background:var(--panel-soft) }
+.history-dock > .history-panel { flex:1; height:100%; min-height:0; min-width:0; border:0 }
+.history-details { flex-shrink:0; min-width:0; display:flex; flex-direction:column; overflow:hidden; background:var(--panel-soft) }
+.history-details > .panel-heading { flex-shrink:0; background:var(--panel-soft) }
+.history-details > .commit-information { flex:1; min-height:0; max-height:none; border-top:0; overflow:auto; margin:0; padding:12px 14px }
+.history-details .commit-information-heading { align-items:flex-start }
+.history-details .commit-information-heading > strong { line-height:1.65 }
+.history-details .empty-state { font-size:12px; padding:14px }
+.history-details .empty-state p { max-width:230px }
+.history-dock .log-filter-toolbar { flex-wrap:wrap }
+.history-dock .history-search { flex:1; min-width:120px }
+.file-directory-heading { display:flex; align-items:center; gap:7px; flex-shrink:0; height:34px; padding:0 11px; border-bottom:1px solid var(--border-soft); color:var(--text-muted); font-size:11px }
+.file-directory-heading > strong { color:var(--text); font-weight:600 }
+.file-directory-heading > span { margin-left:auto; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-family:var(--mono); font-size:10px }
+.commit-files { border-right:0 }
+.file-tree-contents { min-width:100%; width:max-content }
+.file-tree-contents .tree-folder > span,.file-tree-contents .tree-file > span { flex:1 0 auto; overflow:visible; text-overflow:clip }
+.file-tree-contents .tree-folder > svg,.file-tree-contents .tree-file > svg { flex-shrink:0 }
+.file-tree-contents .tree-folder { padding-right:12px }
+.commit-files > .tree-mode { flex-shrink:0 }
+.diff-body > .diff-content { min-width:0 }
+.rail-divider { width:22px; height:1px; background:var(--border); margin:5px 0 }
+.reopen-details { flex-shrink:0; display:flex; align-items:center; gap:9px; padding:12px 8px; flex-direction:column; color:var(--text-muted); border-left:1px solid var(--border); background:var(--panel-soft) }
+.reopen-details span { writing-mode:vertical-rl; letter-spacing:3px; font-size:11px }
+.reopen-details:hover { color:var(--accent); background:var(--active) }
+/* 历史面板收回后留一条窄边，点一下即可重新展开。 */
+.reopen-history { flex-shrink:0; display:flex; align-items:center; justify-content:center; gap:8px; padding:7px 0; font-size:11px; color:var(--text-dim); border-top:1px solid var(--border); background:var(--panel-soft) }
+.reopen-history:hover { color:var(--accent); background:var(--hover) }
+.changes-panel .panel-heading { gap:4px }
+.changes-panel .panel-tab { min-width:0 }
+.changes-panel .change-row { padding-left:10px; padding-right:8px }
+.changes-panel .changes-branch { padding-left:12px; padding-right:12px }
+.history-dock .log-popover { top:auto; bottom:calc(100% - 42px); max-height:min(330px, 40vh); overflow:auto }
+@media(max-width:1250px) {
+  .history-details .commit-metadata { grid-template-columns:54px minmax(0,1fr); gap:7px }
+  .history-dock .history-filterbar { gap:4px }
+  .diff-panel > .panel-heading .panel-tab > span { display:none }
+}
+/* Consistent pickers across toolbar, log filters and forms. */
+.toolbar .select-menu-trigger { background: transparent; border-color: transparent; min-height: 30px; padding: 4px 7px; }
+.toolbar .select-menu-trigger:hover, .toolbar .select-menu-trigger[aria-expanded="true"] { background: var(--hover); border-color: var(--border); }
+.repo-control .repo-picker { width: 180px; min-width: 90px; font-size: 13px; font-weight: 600; }
+.branch-control .branch-picker { width: 170px; min-width: 75px; font-size: 12px; }
+.theme-control .theme-picker { width: 108px; min-width: 88px; font-size: 12px; }
+.log-select .select-menu-trigger { width: 100%; min-width: 0; height: 29px; min-height: 29px; font-size: 12px; background: var(--panel-soft); }
+.form-field > .select-menu { width: 100%; }
+.form-field > .select-menu .select-menu-trigger { min-height: 36px; font-size: 12px; }
+.log-select > .select-menu { width: 100%; min-width: 0; }
+.repo-control .repo-picker .select-menu-trigger { font-size: 13px; font-weight: 600; }
+.select-menu-option-icon:has(.theme-option-swatch) { flex-basis: 30px; width: 30px; min-width: 30px; }
+.theme-option-swatch { width: 28px; height: 24px; flex-shrink: 0; display: grid; grid-template-columns: 7px 1fr; grid-template-rows: 1fr 1fr; gap: 3px; padding: 4px; border: 1px solid; border-radius: 5px; }
+.theme-option-swatch > i { border-radius: 2px; }
+.theme-option-swatch > i:first-child { grid-row: 1 / 3; }
+@media(max-width:1250px) { .repo-control .repo-picker { width: 135px; } .branch-control .branch-picker { width: 120px; } .theme-control .theme-picker { width: 100px; } }
+@media(max-width:1050px) { .repo-control .repo-picker { width: 105px; } .branch-control .branch-picker { width: 100px; } }

@@ -1,11 +1,25 @@
+import { setBundledGit, setBundledGitPreferred } from './git-runtime';
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import * as git from './git-service';
 import { DEFAULT_PREFERENCES } from '../shared/types';
 import type { AppSettings, GitAction, RepoEntry } from '../shared/types';
 import { APP_THEMES, normalizeSettings, validatePreferences } from './settings-service';
+import { msg, msgf, setMessageLanguage } from '../shared/messages';
+import { canonicalRendererPath, createRendererUrlValidator } from './renderer-origin';
+
+/**
+ * 主进程的对话框与错误信息跟随界面语言。
+ * Git 服务内部保持中文错误原文，在 IPC 边界统一查表翻译，
+ * 这样服务层与测试都与语言无关，也不会漏掉某条新错误。
+ */
+function applyLanguage(language: AppSettings['language']): void {
+  setMessageLanguage(language);
+}
+function localized(error: unknown): Error {
+  return new Error(msg(error instanceof Error ? error.message : String(error)));
+}
 
 let window: BrowserWindow | null = null;
 let settings: AppSettings = { ...DEFAULT_PREFERENCES, repos: [] };
@@ -17,7 +31,8 @@ let pendingSettingsWrites = 0;
 let closeNoticeOpen = false;
 const approvedRepos = new Set<string>();
 const devUrl = !app.isPackaged && process.env.GITVISTA_DEV_URL === 'http://127.0.0.1:5179' ? process.env.GITVISTA_DEV_URL : undefined;
-const rendererFile = path.join(__dirname, '../dist/index.html');
+const rendererFile = devUrl ? '' : canonicalRendererPath(path.join(__dirname, '../dist/index.html'));
+const rendererUrlMatches = devUrl ? () => false : createRendererUrlValidator(rendererFile);
 const repoKey = (value: string) => path.resolve(value).toLowerCase();
 
 async function withOperation<T>(work: () => Promise<T>): Promise<T> {
@@ -37,6 +52,7 @@ async function persist(next: AppSettings) {
   await fs.writeFile(`${settingsPath}.tmp`, JSON.stringify(next, null, 2), 'utf8');
   await fs.rename(`${settingsPath}.tmp`, settingsPath);
   settings = next;
+  applyLanguage(next.language);
 }
 async function registerRepo(value: string): Promise<RepoEntry> {
   const entry = await git.openRepository(value);
@@ -66,17 +82,27 @@ const dangerousActions: Partial<Record<GitAction['type'], string>> = {
   skip: '跳过当前提交？本次集成不会应用此提交的修改。',
   saveFile: '用编辑器中的内容覆盖此工作区文件？',
   resolve: '用所选冲突版本替换工作区文件？请确认保留的是你需要的内容。',
+  revertFile: '撤销所选历史提交对该文件的改动？将反向应用到工作区（合并提交相对首个父提交），不会自动暂存或提交；重命名会同时处理新旧路径。',
+  writeCommitGraph: '生成 Git 原生提交图和路径查询索引？此操作会写入仓库的 Git 元数据，大型仓库可能需要较长时间。这不等同于 IDEA 专用索引。',
 };
 function actionSummary(action: GitAction) {
-  return [action.ref && `引用：${action.ref}`, action.name && `名称：${action.name}`, action.mode && `模式：${action.mode}`, action.paths?.length && `文件：${action.paths.join('、')}`, action.path && `路径：${action.path}`].filter(Boolean).join('\n');
+  return [
+    action.ref && msgf('引用：{0}', action.ref), action.name && msgf('名称：{0}', action.name), action.mode && msgf('模式：{0}', action.mode),
+    action.paths?.length && msgf('文件：{0}', action.paths.join('、')), action.path && msgf('路径：{0}', action.path),
+  ].filter(Boolean).join('\n');
 }
 function trustedSender(event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent) {
   if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('拒绝来自其他窗口的请求。');
   const url = event.senderFrame?.url || '';
-  if (devUrl ? !url.startsWith(`${devUrl}/`) : url.split('#')[0] !== pathToFileURL(rendererFile).href) throw new Error('无效的应用页面。');
+  if (devUrl ? !url.startsWith(`${devUrl}/`) : !rendererUrlMatches(url)) throw new Error('无效的应用页面。');
 }
 function handle(channel: string, fn: (...args: any[]) => unknown) {
-  ipcMain.handle(channel, async (event, ...args) => { trustedSender(event); return fn(...args); });
+  ipcMain.handle(channel, async (event, ...args) => {
+    trustedSender(event);
+    // 服务层与校验层都写中文原文；在这里统一翻译，渲染进程永远拿到当前语言的文本。
+    try { return await fn(...args); }
+    catch (error) { throw localized(error); }
+  });
 }
 function installHandlers() {
   handle('gv:settings', () => settings);
@@ -91,17 +117,17 @@ function installHandlers() {
       if (changingExecutable && activeOperations > 0) throw new Error('Git 操作正在执行，请等待完成后再更换 Git 程序。');
       if (changingExecutable) executableChangeInProgress = true;
       try {
-        await git.testGitExecutable(preferences.gitPath);
+        if (changingExecutable) await git.testGitExecutable(preferences.gitPath);
         await persist({ ...settings, ...preferences });
-        git.configureGitExecutable(preferences.gitPath);
+        await git.configureGitExecutable(preferences.gitPath);
         return settings;
       } finally { if (changingExecutable) executableChangeInProgress = false; }
     });
   });
   handle('gv:git:browse', async () => {
     const result = await dialog.showOpenDialog(window!, {
-      title: '选择 Git for Windows 程序', properties: ['openFile'],
-      filters: [{ name: 'Git 程序（git.exe）', extensions: ['exe'] }],
+      title: msg('选择 Git for Windows 程序'), properties: ['openFile'],
+      filters: [{ name: msg('Git 程序（git.exe）'), extensions: ['exe'] }],
     });
     return result.canceled ? null : result.filePaths[0] || null;
   });
@@ -115,9 +141,12 @@ function installHandlers() {
     const identity = git.validateIdentityUpdate(value);
     if (identity.scope === 'global') {
       const result = await dialog.showMessageBox(window!, {
-        type: 'warning', title: '修改 Git 全局提交身份', message: '保存为当前 Windows 用户的 Git 全局提交身份？',
-        detail: `此设置会影响所有未单独覆盖身份的仓库。\n姓名：${identity.name || '清除全局姓名，继承其他 Git 配置'}\n邮箱：${identity.email || '清除全局邮箱，继承其他 Git 配置'}`,
-        buttons: ['取消', '保存全局身份'], defaultId: 0, cancelId: 0, noLink: true,
+        type: 'warning',
+        title: msg('修改 Git 全局提交身份'), message: msg('保存为当前 Windows 用户的 Git 全局提交身份？'),
+        detail: msgf('此设置会影响所有未单独覆盖身份的仓库。\n姓名：{0}\n邮箱：{1}',
+          identity.name || msg('清除全局姓名，继承其他 Git 配置'),
+          identity.email || msg('清除全局邮箱，继承其他 Git 配置')),
+        buttons: [msg('取消'), msg('保存全局身份')], defaultId: 0, cancelId: 0, noLink: true,
       });
       if (result.response !== 1) throw new Error('已取消修改全局提交身份。');
     }
@@ -125,7 +154,7 @@ function installHandlers() {
     return withOperation(() => git.setGitIdentity(repo, identity));
   });
   handle('gv:open', async value => {
-    const target = typeof value === 'string' && value.trim() ? value : await chooseDirectory('打开 Git 仓库');
+    const target = typeof value === 'string' && value.trim() ? value : await chooseDirectory(msg('打开 Git 仓库'));
     return target ? registerRepo(target) : null;
   });
   handle('gv:forget', async repo => {
@@ -139,7 +168,7 @@ function installHandlers() {
   });
   handle('gv:clone', async (url, parent, name) => {
     if (typeof url !== 'string' || !url.trim()) throw new Error('请输入远程仓库地址。');
-    const destination = typeof parent === 'string' && parent ? parent : await chooseDirectory('选择克隆到的父目录');
+    const destination = typeof parent === 'string' && parent ? parent : await chooseDirectory(msg('选择克隆到的父目录'));
     if (!destination) return null;
     const entry = await withOperation(() => git.cloneRepository(url, destination, name));
     return registerRepo(entry.path);
@@ -147,7 +176,7 @@ function installHandlers() {
   handle('gv:init', async value => {
     const target = typeof value === 'string' && value ? value : await chooseDirectory('选择要初始化的目录');
     if (!target) return null;
-    const confirmation = await dialog.showMessageBox(window!, { type: 'question', title: '初始化 Git 仓库', message: `在此目录创建 Git 仓库？`, detail: target, buttons: ['取消', '初始化'], defaultId: 0, cancelId: 0 });
+    const confirmation = await dialog.showMessageBox(window!, { type: 'question', title: msg('初始化 Git 仓库'), message: msg('在此目录创建 Git 仓库？'), detail: target, buttons: [msg('取消'), msg('初始化')], defaultId: 0, cancelId: 0 });
     if (confirmation.response !== 1) return null;
     const entry = await withOperation(() => git.initRepository(target));
     return registerRepo(entry.path);
@@ -159,7 +188,7 @@ function installHandlers() {
     if (action.type === 'pull' && !action.mode && action.rebase === undefined) action = { ...action, mode: settings.pullStrategy };
     const prompt = action.type === 'push' && action.force ? '使用 force-with-lease 推送？远端历史可能被替换。' : action.type === 'commit' && action.amend ? '修改上一条提交？这会产生新的提交哈希。' : dangerousActions[action.type];
     if (prompt) {
-      const confirmed = await dialog.showMessageBox(window!, { type: 'warning', title: '确认 Git 操作', message: prompt, detail: `仓库：${repo}\n${actionSummary(action)}`, buttons: ['取消', '确认执行'], defaultId: 0, cancelId: 0, noLink: true });
+      const confirmed = await dialog.showMessageBox(window!, { type: 'warning', title: msg('确认 Git 操作'), message: msg(prompt), detail: `${msg('仓库')}：${repo}\n${actionSummary(action)}`, buttons: [msg('取消'), msg('确认执行')], defaultId: 0, cancelId: 0, noLink: true });
       if (confirmed.response !== 1) throw new Error('已取消操作。');
     }
     return withOperation(() => git.action(repo, action));
@@ -167,7 +196,7 @@ function installHandlers() {
   handle('gv:export', async (repo, ref) => {
     requireRepo(repo);
     const content = await git.exportPatch(repo, ref);
-    const result = await dialog.showSaveDialog(window!, { title: '导出补丁', defaultPath: path.join(app.getPath('documents'), `gitvista-${Date.now()}.patch`), filters: [{ name: 'Git 补丁', extensions: ['patch', 'diff'] }] });
+    const result = await dialog.showSaveDialog(window!, { title: msg('导出补丁'), defaultPath: path.join(app.getPath('documents'), `gitvista-${Date.now()}.patch`), filters: [{ name: msg('Git 补丁'), extensions: ['patch', 'diff'] }] });
     if (result.canceled || !result.filePath) return null;
     await fs.writeFile(result.filePath, content, 'utf8');
     return result.filePath;
@@ -193,7 +222,7 @@ function installHandlers() {
 async function createWindow() {
   window = new BrowserWindow({
     width: 1560, height: 1000, minWidth: 1120, minHeight: 740,
-    title: 'GitVista', backgroundColor: '#11151d', frame: false, icon: path.join(__dirname, '../assets/icon.png'),
+    title: 'GitVista', backgroundColor: '#16181d', frame: false, icon: path.join(__dirname, '../assets/icon.png'),
     show: process.env.GITVISTA_TEST !== '1',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, spellcheck: false },
   });
@@ -205,7 +234,7 @@ async function createWindow() {
     event.preventDefault();
     if (closeNoticeOpen) return;
     closeNoticeOpen = true;
-    void dialog.showMessageBox(window!, { type: 'info', title: '操作正在执行', message: '请等待当前 Git 操作或设置保存完成后关闭窗口。', buttons: ['继续等待'] }).finally(() => { closeNoticeOpen = false; });
+    void dialog.showMessageBox(window!, { type: 'info', title: msg('操作正在执行'), message: msg('请等待当前 Git 操作或设置保存完成后关闭窗口。'), buttons: [msg('继续等待')] }).finally(() => { closeNoticeOpen = false; });
   });
   window.on('closed', () => { window = null; });
   if (devUrl) await window.loadURL(devUrl); else await window.loadFile(rendererFile);
@@ -222,13 +251,18 @@ else {
       const loaded = JSON.parse(await fs.readFile(settingsPath, 'utf8'));
       settings = normalizeSettings(loaded);
     } catch { /* 首次运行使用默认设置。 */ }
-    git.configureGitExecutable(settings.gitPath);
+    // 在读取设置之后立即同步语言，之后的对话框与错误信息才有正确的语言。
+    applyLanguage(settings.language);
+    setBundledGit(app.isPackaged ? path.join(process.resourcesPath, 'git') : path.join(__dirname, '../vendor/mingit'));
+    // 开发态优先使用系统 Git，打包后优先使用内置 Git，避免本机已装的 Git 版本差异影响调试。
+    setBundledGitPreferred(app.isPackaged);
+    await git.configureGitExecutable(settings.gitPath);
     for (const repo of settings.repos) approvedRepos.add(repoKey(repo.path));
     const repoArgument = process.argv.find(value => value.startsWith('--repo='));
     if (repoArgument) { try { await registerRepo(repoArgument.slice(7)); } catch (error) { console.error('打开启动仓库失败：', (error as Error).message); } }
     installHandlers();
     await createWindow();
     app.on('activate', () => { if (!window) void createWindow(); });
-  }).catch(error => { dialog.showErrorBox('GitVista 无法启动', String(error)); app.quit(); });
+  }).catch(error => { dialog.showErrorBox(msg('GitVista 无法启动'), String(error)); app.quit(); });
   app.on('window-all-closed', () => { app.quit(); });
 }

@@ -17,3 +17,6 @@ Thumbs.db
 .env.*
 !.env.example
 *.tmp
+
+# 打包时下载的 MinGit，体积较大，不随源码提交。
+vendor/

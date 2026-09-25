@@ -2,7 +2,7 @@ import path from 'node:path';
 import { DEFAULT_PREFERENCES } from '../shared/types';
 import type { AppPreferences, AppSettings, AppTheme, RepoEntry } from '../shared/types';
 
-export const APP_THEMES: AppTheme[] = ['dark', 'light', 'midnight', 'nord', 'forest', 'rose'];
+export const APP_THEMES: AppTheme[] = ['deep', 'darcula', 'dark', 'light', 'midnight', 'nord', 'forest', 'rose'];
 const PULL_STRATEGIES = ['ff-only', 'merge', 'rebase'];
 const DIFF_VIEWS = ['split', 'unified'];
 
@@ -27,7 +27,7 @@ export function validatePreferences(value: unknown): AppPreferences {
   }
   if (typeof source.wordWrap !== 'boolean') throw new Error('自动换行设置不正确。');
   return {
-    theme: source.theme as AppTheme, gitPath: normalizeGitPath(source.gitPath),
+    language: source.language === 'zh' ? 'zh' : 'en', theme: source.theme as AppTheme, gitPath: normalizeGitPath(source.gitPath),
     pullStrategy: source.pullStrategy as AppPreferences['pullStrategy'], diffView: source.diffView as AppPreferences['diffView'],
     codeFontSize: source.codeFontSize, wordWrap: source.wordWrap,
   };
@@ -52,7 +52,7 @@ export function normalizeSettings(value: unknown): AppSettings {
     return process.platform === 'win32' ? repo.path.toLowerCase() === path.normalize(source.lastRepo as string).toLowerCase() : repo.path === path.normalize(source.lastRepo as string);
   })?.path : undefined;
   return {
-    ...DEFAULT_PREFERENCES, gitPath, repos, lastRepo: selected,
+    ...DEFAULT_PREFERENCES, gitPath, repos, lastRepo: selected, language: source.language === 'zh' ? 'zh' : 'en',
     theme: APP_THEMES.includes(source.theme as AppTheme) ? source.theme as AppTheme : DEFAULT_PREFERENCES.theme,
     pullStrategy: PULL_STRATEGIES.includes(source.pullStrategy as string) ? source.pullStrategy as AppPreferences['pullStrategy'] : DEFAULT_PREFERENCES.pullStrategy,
     diffView: DIFF_VIEWS.includes(source.diffView as string) ? source.diffView as AppPreferences['diffView'] : DEFAULT_PREFERENCES.diffView,

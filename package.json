@@ -1,6 +1,6 @@
 {
   "name": "gitvista",
-  "version": "0.2.0",
+  "version": "0.7.0",
   "private": true,
   "description": "GitVista — 看清每一次变更",
   "author": "GitVista",
@@ -12,6 +12,9 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && vite build && node scripts/build-electron.mjs",
     "start": "electron .",
+    "fetch:mingit": "node scripts/fetch-mingit.mjs",
+    "prepackage": "node scripts/fetch-mingit.mjs",
+    "prepackage:dir": "node scripts/fetch-mingit.mjs",
     "package": "npm run build && electron-builder --win portable --x64",
     "package:dir": "npm run build && electron-builder --win --dir --x64"
   },
@@ -54,6 +57,12 @@
     },
     "portable": {
       "artifactName": "GitVista-${version}-Windows-x64.exe"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "vendor/mingit",
+        "to": "git"
+      }
+    ]
   }
 }
