@@ -1,4 +1,4 @@
-import type { GitBranch, GitCommit, GitFile, GitStash, GitTag, GitWorktree } from '../shared/types';
+import type { GitBranch, GitCommit, GitFile, GitFileHistoryCommit, GitStash, GitTag, GitWorktree } from '../shared/types';
 
 export const COMMIT_FORMAT = '%H%x00%h%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%D%x00%cI%x00%cn%x00%ce%x1e';
 
@@ -46,6 +46,33 @@ export function parseCommits(text: string): GitCommit[] {
     const [hash, short, parents, author, email, date, subject, refs, committedDate, committer, committerEmail] = record.split('\0');
     return { hash, short, parents: parents ? parents.split(' ') : [], author, email, date, subject, refs: refs || '', ...(committedDate ? { committedDate, committer, committerEmail } : {}) };
   });
+}
+
+// --name-status -z 的路径按字段读取，不能按行拆分：文件名可以包含换行。
+export function parseFileHistory(text: string, path: string): GitFileHistoryCommit[] {
+  const fields = text.split('\0');
+  const result: GitFileHistoryCommit[] = [];
+  let index = 0, currentPath = path;
+  while (index < fields.length) {
+    if (!fields[index].trim()) { index++; continue; }
+    const metadata = fields.slice(index, index + 11);
+    if (!/^[a-f0-9]{40,64}$/.test(metadata[0]) || metadata.length < 11) break;
+    const [commit] = parseCommits(metadata.join('\0'));
+    index += 11;
+    const changes: { path: string; oldPath?: string }[] = [];
+    while (index < fields.length) {
+      const status = fields[index].replace(/^\n+/, '');
+      if (!status) { index++; continue; }
+      if (!/^[A-Z][0-9]*$/.test(status)) break;
+      index++;
+      const first = fields[index++];
+      changes.push(/^[RC]/.test(status) ? { oldPath: first, path: fields[index++] } : { path: first });
+    }
+    const file = changes.find(change => change.path === currentPath) || changes[0] || { path: currentPath };
+    result.push({ ...commit, ...file });
+    currentPath = file.oldPath || file.path;
+  }
+  return result;
 }
 
 export function parseBranches(text: string): GitBranch[] {

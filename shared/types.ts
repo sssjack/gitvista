@@ -1,6 +1,7 @@
 export interface GitFile { path: string; oldPath?: string; index: string; worktree: string; staged: boolean; unstaged: boolean; conflict: boolean }
 export interface GitCommitFile { path: string; oldPath?: string; status: string }
 export interface GitCommit { hash: string; short: string; parents: string[]; author: string; email: string; date: string; subject: string; refs: string; committedDate?: string; committer?: string; committerEmail?: string }
+export interface GitFileHistoryCommit extends GitCommit { path: string; oldPath?: string }
 export interface GitBranch { name: string; current: boolean; remote: boolean; upstream: string; hash: string; subject: string }
 export interface GitStash { ref: string; hash: string; subject: string; date: string }
 export interface GitTag { name: string; hash: string; subject: string }

@@ -1,0 +1,33 @@
+.file-history-menu { position: fixed; z-index: 350; width: 230px; max-width: calc(100vw - 16px); padding: 5px; background: var(--panel-raised); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+.file-history-menu-path { padding: 6px 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-dim); font-size: 11px; }
+.file-history-menu > button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; border-radius: 4px; text-align: left; font-size: 12px; }
+.file-history-menu > button:hover, .file-history-menu > button:focus-visible { background: var(--hover); outline: 1px solid var(--accent); outline-offset: -1px; }
+.modal-backdrop.file-history-backdrop { z-index: 250; }
+.file-history-dialog { display: flex; flex-direction: column; width: 1220px; max-width: 96vw; height: 780px; max-height: 92vh; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow: hidden; }
+.file-history-dialog > header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; font-size: 13px; }
+.file-history-dialog > header > svg { color: var(--accent); }
+.file-history-dialog > header > strong { white-space: nowrap; }
+.file-history-dialog > header > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 12px; }
+.file-history-context { display: flex; justify-content: space-between; gap: 16px; padding: 8px 16px; color: var(--text-dim); font-size: 11px; border-bottom: 1px solid var(--border); }
+.file-history-context > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-history-context > span:last-child { flex-shrink: 0; }
+.file-history-body { display: flex; flex: 1; min-height: 0; }
+.file-history-list { width: 340px; min-width: 240px; max-width: 40%; overflow: auto; border-right: 1px solid var(--border); }
+.file-history-commit { display: flex; flex-direction: column; width: 100%; text-align: left; gap: 8px; padding: 12px; border-bottom: 1px solid var(--border-soft); border-left: 2px solid transparent; }
+.file-history-commit:hover { background: var(--hover); }
+.file-history-commit.active { background: var(--hover); border-left-color: var(--accent); }
+.file-history-commit > strong { width: 100%; font-size: 12px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.file-history-commit > span { display: flex; gap: 10px; width: 100%; align-items: center; font-size: 11px; color: var(--text-dim); }
+.file-history-commit code, .file-history-diff-heading > code { color: var(--accent); font-size: 11px; }
+.file-history-commit > span > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-history-commit time { flex-shrink: 0; }
+.file-history-preview { display: flex; flex-direction: column; flex: 1; min-width: 0; overflow: hidden; }
+.file-history-diff-heading { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 6px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.file-history-diff-heading > span { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-history-error { padding: 16px; color: var(--red); overflow-wrap: anywhere; font-size: 12px; }
+.file-history-error > button { margin-top: 8px; padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); }
+@media (max-width: 720px) {
+  .file-history-body { flex-direction: column; }
+  .file-history-list { width: 100%; max-width: none; min-width: 0; height: 36%; flex-shrink: 0; border-right: 0; border-bottom: 1px solid var(--border); }
+  .file-history-preview { min-height: 0; }
+}

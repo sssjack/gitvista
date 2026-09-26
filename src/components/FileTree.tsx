@@ -55,8 +55,8 @@ function reconcileFolders(state: FolderState, control: TreeControl | undefined, 
   return { ...state, overrides: new Map([...state.overrides].filter(([path]) => folders.has(path))) };
 }
 
-function FileTree({ files, selected, onSelect, control }: {
-  files: TreeFile[]; selected?: string; onSelect: (path: string) => void; control?: TreeControl;
+function FileTree({ files, selected, onSelect, onContextMenu, control }: {
+  files: TreeFile[]; selected?: string; onSelect: (path: string) => void; onContextMenu?: (event: React.MouseEvent<HTMLButtonElement>, path: string) => void; control?: TreeControl;
 }) {
   const { t } = useI18n();
   const [closed, setClosed] = useState<FolderState>(() => ({ controlId: control?.id, collapsed: control?.collapsed, overrides: new Map() }));
@@ -75,7 +75,7 @@ function FileTree({ files, selected, onSelect, control }: {
       const FolderIcon = isClosed ? Folder : FolderOpen;
       return <div key={node.path}><button className="tree-folder" title={node.path} aria-expanded={!isClosed} style={{ paddingLeft: 8 + depth * 13 }} onClick={() => toggleFolder(node.path)}>{isClosed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}<FolderIcon className="tree-folder-icon" size={14} /><span>{node.name}</span></button>{!isClosed && render(node.children, depth + 1)}</div>;
     }
-    return <button className={`tree-file ${node.path === selected ? 'active' : ''} ${fileStatusClass(node.status)}`} title={node.submodule ? `${node.path}${t('（子模块）')}` : node.path} key={node.path} style={{ paddingLeft: 22 + depth * 13, paddingRight: 9 }} disabled={node.submodule} onClick={() => onSelect(node.path)}><FileIcon path={node.path} submodule={node.submodule} /><span className="tree-file-name">{node.name}</span><i>{node.submodule ? '↗' : node.status?.trim().slice(0, 1)}</i></button>;
+    return <button className={`tree-file ${node.path === selected ? 'active' : ''} ${fileStatusClass(node.status)}`} title={node.submodule ? `${node.path}${t('（子模块）')}` : node.path} key={node.path} style={{ paddingLeft: 22 + depth * 13, paddingRight: 9 }} disabled={node.submodule} onClick={() => onSelect(node.path)} onContextMenu={onContextMenu && !node.submodule ? event => onContextMenu(event, node.path) : undefined}><FileIcon path={node.path} submodule={node.submodule} /><span className="tree-file-name">{node.name}</span><i>{node.submodule ? '↗' : node.status?.trim().slice(0, 1)}</i></button>;
   });
   return <div className="file-tree" aria-label={t('逐级文件目录')}><div className="file-tree-contents">{render(tree.roots)}</div></div>;
 }

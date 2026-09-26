@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { msgf } from '../shared/messages';
 import type { AppLanguage, ActionResult, PushPreview, CommitDetail, DiffResult, GitAction, GitCommit, GitIdentity, GitIdentityUpdate, GitLogOptions, GitLogResult, GitQuery, GitRemote, GitSnapshot, GitTreeEntry, GitWorkingState, IdentityFields, RepoEntry } from '../shared/types';
-import { COMMIT_FORMAT, parseBranches, parseCommits, parseNameChanges, parseNumstat, parseStashes, parseStatus, parseTags, parseWorktrees } from './git-parse';
+import { COMMIT_FORMAT, parseBranches, parseCommits, parseFileHistory, parseNameChanges, parseNumstat, parseStashes, parseStatus, parseTags, parseWorktrees } from './git-parse';
 import { normalizeGitPath } from './settings-service';
 
 const MAX_OUTPUT = 16 * 1024 * 1024;
@@ -528,9 +528,12 @@ export async function query(directory: string, request: GitQuery): Promise<unkno
       return output(repo, ['blame', '--date=short', '-w', ...revision, '--', selected]);
     }
     case 'fileHistory': {
-      const selected = await safePath(repo, request.path);
+      const selected = await safePath(repo, request.oldPath || request.path);
       if (!(await hasHead(repo))) return [];
-      return parseCommits(await output(repo, ['log', ...logArgs(request), '--follow', ...(request.ref ? [await commitRef(repo, request.ref)] : []), '--', selected]));
+      const skip = logNumber(request.log?.skip, 0, 0, 1_000_000, '跳过条数');
+      // --follow 的路径在遍历中会改变，--skip 会在重命名过滤前计数；读取前缀后分页。
+      const args = logArgs(request).filter(arg => !arg.startsWith('--format=')).map(arg => arg.startsWith('--max-count=') ? `--max-count=${Number(arg.slice(12)) + skip}` : arg);
+      return parseFileHistory(await output(repo, ['log', ...args, '--follow', '--name-status', '-z', '--no-ext-diff', '--no-textconv', `--format=${COMMIT_FORMAT.replace('%x1e', '%x00')}`, ...(request.ref ? [await commitRef(repo, request.ref)] : []), '--', selected]), selected).slice(skip);
     }
     case 'reflog': {
       if (!(await hasHead(repo))) return [];

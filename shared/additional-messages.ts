@@ -83,4 +83,8 @@ export const ADDITIONAL_EN: Record<string, string> = {
   '通过 HTTPS 授权，仅在本次运行期间保留。不会写入仓库地址或磁盘。服务商禁用账户密码时请使用 Token。': 'HTTPS credentials last until you exit. They are never saved in repository URLs or on disk. Use a token if your provider disables account passwords.',
   '正在处理…': 'Working…', '应用授权': 'Apply credentials', '克隆并打开': 'Clone and open',
   '未打开仓库': 'No repository open', '打开主窗口': 'Open main window', '迷你横条': 'Mini bar', '最新提交': 'Latest commits', '退出': 'Quit', '展开迷你横条': 'Expand mini bar', '拖动到屏幕边缘可自动收起': 'Drag to a screen edge to auto-hide', '请先打开仓库': 'Open a repository first', '收起到托盘': 'Hide to system tray',
+  '查看文件历史': 'Show File History', '文件操作': 'File actions', '关闭文件历史': 'Close file history',
+  '截至提交 {0}': 'Up to commit {0}', '当前分支 · HEAD': 'Current branch · HEAD', '文件提交记录': 'File commits',
+  '没有文件历史': 'No file history', '此文件在所选版本之前没有提交记录。': 'This file has no commits at or before the selected revision.',
+  '重试': 'Retry',
 };
