@@ -16,7 +16,7 @@
 
 /* Green = inserted, blue = replaced, red = deleted. Syntax colors remain intact. */
 :root,:root[data-theme="dark"]{--diff-add:#70ce91;--diff-modify:#79adf6;--diff-remove:#ee8a96}
-:root[data-theme="light"]{--diff-add:#22844d;--diff-modify:#357ac7;--diff-remove:#c63e58}
+:root:is([data-theme="light"], [data-theme="sand"], [data-theme="sky"], [data-theme="mint"], [data-theme="lavender"]){--diff-add:#22844d;--diff-modify:#357ac7;--diff-remove:#c63e58}
 :root[data-theme="midnight"]{--diff-add:#69d7a4;--diff-modify:#7eb1ff;--diff-remove:#f48fa6}
 :root[data-theme="nord"]{--diff-add:#a3ce91;--diff-modify:#87bafa;--diff-remove:#ea939b}
 :root[data-theme="forest"]{--diff-add:#83d991;--diff-modify:#83b7ff;--diff-remove:#ed979f}

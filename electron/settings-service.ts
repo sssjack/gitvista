@@ -2,7 +2,7 @@ import path from 'node:path';
 import { DEFAULT_PREFERENCES } from '../shared/types';
 import type { AppPreferences, AppSettings, AppTheme, RepoEntry } from '../shared/types';
 
-export const APP_THEMES: AppTheme[] = ['deep', 'darcula', 'dark', 'light', 'midnight', 'nord', 'forest', 'rose'];
+export const APP_THEMES: AppTheme[] = ['deep', 'darcula', 'dark', 'light', 'sand', 'sky', 'mint', 'lavender', 'midnight', 'nord', 'forest', 'rose'];
 const PULL_STRATEGIES = ['ff-only', 'merge', 'rebase'];
 const DIFF_VIEWS = ['split', 'unified'];
 const CLOSE_BEHAVIORS = ['ask', 'tray', 'quit'];

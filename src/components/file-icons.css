@@ -11,7 +11,7 @@
   --file-type-red: #ed95a2;
   --file-type-neutral: #adb6c6;
 }
-:root[data-theme="light"] {
+:root:is([data-theme="light"], [data-theme="sand"], [data-theme="sky"], [data-theme="mint"], [data-theme="lavender"]) {
   --git-file-added: #216c3a;
   --git-file-modified: #2860b2;
   --git-file-deleted: #b8394e;

@@ -1,5 +1,10 @@
 // Labels shared by the workbench, repository dialogs and the desktop companion.
 export const ADDITIONAL_EN: Record<string, string> = {
+  '浅色主题': 'Light themes', '深色主题': 'Dark themes',
+  '暖砂纸': 'Warm Sand', '暖米底色，沉静阅读': 'Warm ivory for calm reading',
+  '晴空蓝': 'Clear Sky', '清透浅蓝，轻盈明快': 'Airy blue, bright and clear',
+  '薄荷绿': 'Fresh Mint', '淡绿底色，清新舒展': 'Soft green, fresh and relaxed',
+  '浅薰衣草': 'Soft Lavender', '柔和浅紫，细腻安静': 'Gentle lilac, quiet and refined',
   '常规': 'General', '窗口行为': 'Window behavior', '点击关闭按钮时': 'When closing the window', '每次询问': 'Ask every time',
   '最小化到任务栏': 'Minimize to taskbar', '关闭 GitVista': 'Close GitVista', '关闭窗口时要执行什么操作？': 'What would you like to do when closing the window?',
   '退出软件': 'Quit GitVista', '隐藏到系统托盘': 'Hide to system tray', '以后不再提示': "Don't ask again",

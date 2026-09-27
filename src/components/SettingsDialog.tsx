@@ -6,15 +6,19 @@ import type { AppPreferences, AppSettings, AppTheme, GitIdentity, IdentityFields
 import { useI18n } from '../lib/i18n';
 import { UI_FONT_OPTIONS, UI_FONT_SCALES } from '../lib/ui-font';
 
-export const THEMES: { value: AppTheme; name: string; detail: string; colors: string[] }[] = [
-  { value: 'deep', name: '深黑', detail: '最深底色，接近 IDEA 深色', colors: ['#0b0c0e', '#121316', '#6f9fd8', '#6aa84f'] },
-  { value: 'darcula', name: 'IDEA 深黑', detail: '更深背景、清晰对比', colors: ['#101114', '#17191d', '#a88bfa', '#6aab73'] },
-  { value: 'dark', name: '石墨深色', detail: '安静、专注', colors: ['#16181d', '#1b1e24', '#7d95f5', '#62bd85'] },
-  { value: 'light', name: '云白浅色', detail: '明亮、清晰', colors: ['#f7f8fa', '#ffffff', '#4a6cf0', '#1c8a55'] },
-  { value: 'midnight', name: '午夜蓝', detail: '深邃、纯粹', colors: ['#101526', '#151b2e', '#7c9bf2', '#5fb8ac'] },
-  { value: 'nord', name: '北欧极光', detail: '柔和、冷静', colors: ['#242933', '#2b313c', '#8fb0c9', '#93bf8a'] },
-  { value: 'forest', name: '森林绿', detail: '自然、舒展', colors: ['#161d1b', '#1b2422', '#8fbfa4', '#6cbd8c'] },
-  { value: 'rose', name: '暮光玫瑰', detail: '温润、细腻', colors: ['#1e191e', '#241e24', '#d499bf', '#96bd93'] },
+export const THEMES: { value: AppTheme; name: string; detail: string; colorScheme: 'light' | 'dark'; colors: string[] }[] = [
+  { value: 'light', name: '云白浅色', detail: '明亮、清晰', colorScheme: 'light', colors: ['#f7f8fa', '#ffffff', '#3f5fd4', '#187d4b'] },
+  { value: 'sand', name: '暖砂纸', detail: '暖米底色，沉静阅读', colorScheme: 'light', colors: ['#f5f0e6', '#fffaf0', '#895a22', '#287047'] },
+  { value: 'sky', name: '晴空蓝', detail: '清透浅蓝，轻盈明快', colorScheme: 'light', colors: ['#eff5fc', '#f9fcff', '#2563b6', '#23734e'] },
+  { value: 'mint', name: '薄荷绿', detail: '淡绿底色，清新舒展', colorScheme: 'light', colors: ['#f0f7f3', '#fbfefc', '#23735b', '#287444'] },
+  { value: 'lavender', name: '浅薰衣草', detail: '柔和浅紫，细腻安静', colorScheme: 'light', colors: ['#f5f2fa', '#fdfbff', '#7652ac', '#34734b'] },
+  { value: 'deep', name: '深黑', detail: '最深底色，接近 IDEA 深色', colorScheme: 'dark', colors: ['#0b0c0e', '#121316', '#6f9fd8', '#6aa84f'] },
+  { value: 'darcula', name: 'IDEA 深黑', detail: '更深背景、清晰对比', colorScheme: 'dark', colors: ['#101114', '#17191d', '#a88bfa', '#6aab73'] },
+  { value: 'dark', name: '石墨深色', detail: '安静、专注', colorScheme: 'dark', colors: ['#16181d', '#1b1e24', '#7d95f5', '#62bd85'] },
+  { value: 'midnight', name: '午夜蓝', detail: '深邃、纯粹', colorScheme: 'dark', colors: ['#101526', '#151b2e', '#7c9bf2', '#5fb8ac'] },
+  { value: 'nord', name: '北欧极光', detail: '柔和、冷静', colorScheme: 'dark', colors: ['#242933', '#2b313c', '#8fb0c9', '#93bf8a'] },
+  { value: 'forest', name: '森林绿', detail: '自然、舒展', colorScheme: 'dark', colors: ['#161d1b', '#1b2422', '#8fbfa4', '#6cbd8c'] },
+  { value: 'rose', name: '暮光玫瑰', detail: '温润、细腻', colorScheme: 'dark', colors: ['#1e191e', '#241e24', '#d499bf', '#96bd93'] },
 ];
 const blankIdentity: GitIdentity = { local: { name: '', email: '' }, global: { name: '', email: '' }, effective: { name: '', email: '' } };
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);

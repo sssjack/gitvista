@@ -29,7 +29,7 @@ export interface WorkspacePushItem { repo: string; preview?: PushPreview; files:
 export interface WorkspacePushPlan { id: string; includeChanges: boolean; items: WorkspacePushItem[] }
 export interface WorkspaceProgress { root: string; repo: string; operation: 'fetch' | 'pull' | 'push'; status: 'running' | 'success' | 'failed' | 'skipped'; output: string; commitHash?: string }
 export interface WorkspaceBatch { operation: 'fetch' | 'pull' | 'push'; repos: string[]; planId?: string; message?: string }
-export type AppTheme = 'dark' | 'light' | 'midnight' | 'nord' | 'forest' | 'rose' | 'darcula' | 'deep';
+export type AppTheme = 'dark' | 'light' | 'sand' | 'sky' | 'mint' | 'lavender' | 'midnight' | 'nord' | 'forest' | 'rose' | 'darcula' | 'deep';
 export type AppLanguage = 'en' | 'zh';
 export type CloseBehavior = 'ask' | 'tray' | 'quit';
 export type UiFontSize = 'small' | 'normal' | 'large' | 'extraLarge';
