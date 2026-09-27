@@ -1,0 +1,6 @@
+.resource-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+.resource-cards > div { display: flex; flex-direction: column; gap: 6px; padding: 15px; background: var(--panel-soft); border: 1px solid var(--border-soft); border-radius: 10px; }
+.resource-cards span, .resource-cards small { color: var(--text-muted); font-size: calc(12px * var(--ui-font-scale, 1)); }
+.resource-cards strong { color: var(--text); font-size: calc(22px * var(--ui-font-scale, 1)); font-variant-numeric: tabular-nums; }
+.resource-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.resource-pending { display: flex; align-items: center; gap: 6px; color: var(--accent); font-size: calc(12px * var(--ui-font-scale, 1)); }

@@ -32,6 +32,8 @@ export interface WorkspaceBatch { operation: 'fetch' | 'pull' | 'push'; repos: s
 export type AppTheme = 'dark' | 'light' | 'sand' | 'sky' | 'mint' | 'lavender' | 'midnight' | 'nord' | 'forest' | 'rose' | 'darcula' | 'deep';
 export type AppLanguage = 'en' | 'zh';
 export type CloseBehavior = 'ask' | 'tray' | 'quit';
+export interface WindowClosePrompt { id: string; kind: 'choice' | 'busy' }
+export interface WindowCloseResponse { id: string; action: 'tray' | 'quit' | 'cancel'; remember: boolean }
 export type UiFontSize = 'small' | 'normal' | 'large' | 'extraLarge';
 export interface AppPreferences { language: AppLanguage; theme: AppTheme; gitPath: string; pullStrategy: 'ff-only' | 'merge' | 'rebase'; diffView: 'split' | 'unified'; codeFontSize: number; wordWrap: boolean; closeBehavior: CloseBehavior; uiFontSize: UiFontSize }
 export const DEFAULT_PREFERENCES: AppPreferences = { language: 'en', theme: 'darcula', gitPath: 'git', pullStrategy: 'ff-only', diffView: 'split', codeFontSize: 12, wordWrap: false, closeBehavior: 'ask', uiFontSize: 'normal' };
@@ -47,7 +49,8 @@ export type MiniQuery = GitQuery & { type: 'status' | 'pushPreview' | 'diff' | '
 export type MiniAction = { type: 'commit'; commitFiles: CommitFileSelection[]; message: string } | { type: 'push'; expectedHead: string; expectedIndexTree: string; remote: string; ref: string; name: string; commitStaged: boolean; message: string };
 export interface MiniBarApi {
   repositories(context: string): Promise<RepoEntry[]>;
-  query<T = unknown>(repo: string, query: MiniQuery): Promise<T>;
+  query<T = unknown>(repo: string, query: MiniQuery, requestKey?: string): Promise<T>;
+  cancelQuery(requestKey: string): void;
   action(repo: string, action: MiniAction): Promise<ActionResult>;
   desktopState(): Promise<DesktopState>;
   desktopCommand(command: DesktopCommand): Promise<void>;
@@ -55,10 +58,15 @@ export interface MiniBarApi {
   onFrame(listener: (frame: MiniFrame) => void): () => void;
 }
 export interface GitVistaApi {
+  resourceUsage(): Promise<ResourceUsage>;
+  clearRuntimeCache(): Promise<ResourceUsage>;
   settings(): Promise<AppSettings>;
   setTheme(theme: AppTheme): Promise<void>;
   updatePreferences(preferences: AppPreferences): Promise<AppSettings>;
   onPreferencesChanged(listener: (preferences: AppPreferences) => void): () => void;
+  windowClosePrompt(): Promise<WindowClosePrompt | null>;
+  onWindowClosePrompt(listener: (prompt: WindowClosePrompt | null) => void): () => void;
+  respondToWindowClose(response: WindowCloseResponse): Promise<void>;
   browseGitPath(): Promise<string | null>;
   testGitPath(gitPath: string): Promise<{ version: string }>;
   getGitIdentity(repo: string): Promise<GitIdentity>;
@@ -80,7 +88,8 @@ export interface GitVistaApi {
   onDesktopState(listener: (state: DesktopState) => void): () => void;
   onRepositoryRefresh(listener: () => void): () => void;
   initRepository(path?: string): Promise<RepoEntry | null>;
-  query<T = unknown>(repo: string, query: GitQuery): Promise<T>;
+  query<T = unknown>(repo: string, query: GitQuery, requestKey?: string): Promise<T>;
+  cancelQuery(requestKey: string): void;
   action(repo: string, action: GitAction): Promise<ActionResult>;
   exportPatch(repo: string, ref?: string): Promise<string | null>;
   revealPath(repo: string, relative?: string): Promise<void>;
@@ -89,3 +98,15 @@ export interface GitVistaApi {
 declare global { interface Window { gitvista: GitVistaApi; gitvistaMini: MiniBarApi } }
 
 export interface PushPreview { branch: string; remote: string; target: string; head: string; base: string; commits: GitCommit[]; files: { path: string; status: string }[]; total: number; indexTree?: string; stagedFiles?: GitFile[]; }
+
+export interface ResourceUsage {
+  cacheBytes: number;
+  httpCacheBytes: number;
+  cacheBudgetBytes: number;
+  settingsBytes: number;
+  pendingCacheCleanup: boolean;
+  processes: number;
+  workingSetBytes: number;
+  privateBytes: number;
+  sampledAt: string;
+}

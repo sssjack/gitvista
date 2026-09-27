@@ -1,5 +1,5 @@
 import SelectMenu from './SelectMenu';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownUp, ArrowUpRight, CalendarDays, Check, ChevronDown, Eye, FilterX, GitBranch, GitCommitHorizontal, History, Loader2, MoreHorizontal, RefreshCw, Search, Tag, X, Zap } from 'lucide-react';
 import type { GitCommit, GitLogOptions, GitLogResult, GitQuery, GitSnapshot } from '../../shared/types';
 import CommitGraph from './CommitGraph';
@@ -8,6 +8,9 @@ import { useI18n } from '../lib/i18n';
 import ResizeHandle from './ResizeHandle';
 import { clampColumnWidth, LOG_COLUMN_LIMITS, LOG_COLUMNS_KEY, readLogColumnWidths } from '../lib/log-columns';
 import type { LogColumn } from '../lib/log-columns';
+import { historyPageWithinBudget, RESOURCE_BUDGET } from '../lib/resource-budget';
+import { useVirtualRows } from '../lib/use-virtual-rows';
+import './resource-pager.css';
 
 export type LogCommand = { kind: 'branch' | 'locate'; value: string; id: number };
 type ViewOptions = { author: boolean; date: boolean; hash: boolean; compactRefs: boolean; tagNames: boolean; refsRight: boolean; commitDate: boolean };
@@ -32,12 +35,12 @@ function readView(): ViewOptions {
   catch { return DEFAULT_VIEW; }
 }
 
-export interface LogSource { query: <T>(request: GitQuery) => Promise<T>; commitLabel: (hash: string) => string; refLabel: (ref: string) => string; controls?: React.ReactNode }
+export interface LogSource { query: <T>(request: GitQuery, requestKey?: string) => Promise<T>; cancel?: (requestKey: string) => void; commitLabel: (hash: string) => string; refLabel: (ref: string) => string; controls?: React.ReactNode }
 
-export default function LogPanel({ repo, snapshot, selected, busy, blocked, refreshing, command, inCurrentBranch, onSelect, onRefresh, onTool, source }: {
+export default function LogPanel({ repo, snapshot, selected, busy, blocked, refreshing, command, inCurrentBranch, onSelect, onRefresh, onTool, source, suspended = false }: {
   repo: string; snapshot: GitSnapshot; selected?: string; busy: boolean; blocked: boolean; refreshing: boolean; command?: LogCommand; inCurrentBranch?: boolean;
   onSelect: (hash: string) => void; onRefresh: () => void; onTool: (tool: 'cherryPick' | 'revert' | 'tagCreate' | 'reset' | 'exportPatch' | 'reflog' | 'branchCreate' | 'writeCommitGraph', values?: Record<string, string | boolean>) => void;
-  source?: LogSource;
+  source?: LogSource; suspended?: boolean;
 }) {
   const [filter, setFilter] = useState<GitLogOptions>({ ...EMPTY_FILTER });
   const { t, locale } = useI18n();
@@ -48,6 +51,7 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
   const [view, setView] = useState(readView);
   const [columnWidths, setColumnWidths] = useState(readLogColumnWidths);
   const [viewportWidth, setViewportWidth] = useState(0);
+  const [pageStart, setPageStart] = useState(0);
   const [result, setResult] = useState<GitLogResult>(() => snapshotLogResult(snapshot, EMPTY_FILTER) || { commits: [], hasMore: false, nextSkip: 0 });
   const [loading, setLoading] = useState(false); const [error, setError] = useState(''); const [authors, setAuthors] = useState<string[]>([]);
   const [menu, setMenu] = useState<'sort' | 'view' | 'date' | 'paths' | 'more' | null>(null);
@@ -57,8 +61,31 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
   const resetRepoRef = useRef(repo); const debounceRef = useRef(false);
   const authorsRequest = useRef<{ repo: string; commits: GitCommit[]; pending: boolean; loaded: boolean } | null>(null);
   const rootRef = useRef<HTMLElement>(null); const headRef = useRef<HTMLDivElement>(null); const api = window.gitvista;
-  const query = useCallback(<T,>(request: GitQuery) => source ? source.query<T>(request) : api.query<T>(repo, request), [api, repo, source]);
+  const queryId = useId();
+  const query = useCallback(<T,>(request: GitQuery) => source ? source.query<T>(request, `${queryId}:${request.type}`) : api.query<T>(repo, request, `${queryId}:${request.type}`), [api, repo, source, queryId]);
+  const cancel = useCallback((type: string) => { if (source) source.cancel?.(`${queryId}:${type}`); else api.cancelQuery(`${queryId}:${type}`); }, [api, source, queryId]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const retainedView = useRef({ criteria: '', skip: 0, top: 0, left: 0 });
+  const pendingScroll = useRef<{ top: number; left: number } | null>(null);
+  const preserveScroll = useRef(false);
+  const handledCommand = useRef<number | undefined>(undefined);
+  const virtual = useVirtualRows(scrollRef, result.commits.length, LOG_ROW_HEIGHT);
+  const acceptPage = (data: GitLogResult, skip: number, position?: { top: number; left: number }) => {
+    const commits = historyPageWithinBudget(data.commits);
+    const nextPosition = position || { top: 0, left: scrollRef.current?.scrollLeft || 0 };
+    retainedView.current = { ...retainedView.current, skip, ...nextPosition };
+    pendingScroll.current = nextPosition; preserveScroll.current = !!position;
+    setResult({ ...data, commits, nextSkip: commits.length < data.commits.length ? skip + commits.length : data.nextSkip, hasMore: data.hasMore || commits.length < data.commits.length });
+    setPageStart(skip);
+  };
+  useLayoutEffect(() => {
+    const position = pendingScroll.current, scroller = scrollRef.current;
+    if (!position || !scroller || suspended) return;
+    scroller.scrollTop = position.top; scroller.scrollLeft = position.left;
+    if (headRef.current) headRef.current.scrollLeft = position.left;
+    pendingScroll.current = null;
+  }, [result, suspended]);
+  useEffect(() => () => { ++requestId.current; ++locateId.current; cancel('log'); cancel('logAuthors'); cancel('resolveRef'); }, [cancel]);
   const updateFilter = (patch: Partial<GitLogOptions>, typing = false) => { ++locateId.current; ++requestId.current; debounceRef.current = typing; setLocating(false); setFilter(current => ({ ...current, ...patch })); };
   const resetFilter = () => { ++locateId.current; ++requestId.current; debounceRef.current = false; setLocating(false); setFilter({ ...EMPTY_FILTER }); setPathText(''); };
 
@@ -80,37 +107,49 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
     resetRepoRef.current = repo; debounceRef.current = false; authorsRequest.current = null; ++requestId.current; ++locateId.current;
     setFilter({ ...EMPTY_FILTER }); setResult(snapshotLogResult(snapshot, EMPTY_FILTER) || { commits: [], hasMore: false, nextSkip: 0 }); setAuthors([]); setError(''); setPathText(''); setMenu(null); setLocateOpen(false); setLocating(false);
   }, [repo]);
-  const availableAuthors = useMemo(() => [...new Set([...commitAuthors(snapshot.commits), ...authors])], [snapshot.commits, authors]);
+  const availableAuthors = useMemo(() => suspended ? [] : [...new Set([...commitAuthors(snapshot.commits), ...authors])].slice(0, RESOURCE_BUDGET.authorSuggestions), [snapshot.commits, authors, suspended]);
   const loadAuthors = () => {
+    if (suspended) return;
     const previous = authorsRequest.current;
     if (previous?.repo === repo && previous.commits === snapshot.commits && (previous.pending || previous.loaded)) return;
     const request = { repo, commits: snapshot.commits, pending: true, loaded: false }; authorsRequest.current = request;
     void query<string[]>({ type: 'logAuthors' }).then(values => {
-      if (authorsRequest.current === request && repo === repoRef.current) { request.loaded = true; setAuthors(values); }
+      if (authorsRequest.current === request && repo === repoRef.current) { request.loaded = true; setAuthors(values.slice(0, RESOURCE_BUDGET.authorSuggestions)); }
     }).catch(() => { /* 快照中的作者仍可选择；再次聚焦时可以重试读取完整列表。 */ }).finally(() => { request.pending = false; });
   };
   useEffect(() => {
     const id = ++requestId.current; let alive = true; setError('');
-    const cached = snapshotLogResult(snapshot, filter);
-    if (cached) { debounceRef.current = false; setResult(cached); setLoading(false); return; }
+    const criteria = JSON.stringify([repo, filter]);
+    const changed = retainedView.current.criteria !== criteria;
+    if (changed) retainedView.current = { criteria, skip: 0, top: 0, left: retainedView.current.left };
+    if (suspended) {
+      ++locateId.current; cancel('log'); cancel('logAuthors'); cancel('resolveRef');
+      authorsRequest.current = null; setAuthors([]); setLocating(false); setLoading(false);
+      setResult({ commits: [], hasMore: false, nextSkip: retainedView.current.skip });
+      return;
+    }
+    const { skip, top, left } = retainedView.current;
+    const position = changed ? undefined : { top, left };
+    const cached = skip === 0 ? snapshotLogResult(snapshot, filter) : null;
+    if (cached) { debounceRef.current = false; acceptPage(cached, 0, position); setLoading(false); return () => cancel('log'); }
     setLoading(true);
     const request = () => {
       debounceRef.current = false;
-      query<GitLogResult>({ type: 'log', log: { ...filter, skip: 0, limit: 250 } }).then(data => { if (alive && id === requestId.current && repo === repoRef.current) setResult(data); }).catch(e => { if (alive && id === requestId.current) { setError(errorText(e)); setResult({ commits: [], hasMore: false, nextSkip: 0 }); } }).finally(() => { if (alive && id === requestId.current) setLoading(false); });
+      query<GitLogResult>({ type: 'log', log: { ...filter, skip, limit: RESOURCE_BUDGET.historyPage } }).then(data => { if (alive && id === requestId.current && repo === repoRef.current) acceptPage(data, skip, position); }).catch(e => { if (alive && id === requestId.current) { setError(errorText(e)); setResult({ commits: [], hasMore: false, nextSkip: skip }); setPageStart(skip); } }).finally(() => { if (alive && id === requestId.current) setLoading(false); });
     };
     const timer = debounceRef.current ? setTimeout(request, 260) : undefined;
     if (timer === undefined) request();
-    return () => { alive = false; if (timer !== undefined) clearTimeout(timer); };
-  }, [repo, filter, snapshot.commits, snapshot.commitsHasMore, snapshot.commitsOrder, query]);
-  const loadMore = async () => {
-    if (loading || !result.hasMore) return;
+    return () => { alive = false; cancel('log'); if (timer !== undefined) clearTimeout(timer); };
+  }, [repo, filter, snapshot.commits, snapshot.commitsHasMore, snapshot.commitsOrder, query, suspended]);
+  const loadPage = async (skip: number) => {
+    if (loading || suspended) return;
     const id = requestId.current; const targetRepo = repo; setLoading(true);
-    try { const next = await query<GitLogResult>({ type: 'log', log: { ...filter, skip: result.nextSkip, limit: 250 } }); if (id === requestId.current && targetRepo === repoRef.current) setResult(current => ({ ...next, commits: [...current.commits, ...next.commits.filter(commit => !current.commits.some(existing => existing.hash === commit.hash))] })); }
+    try { const next = await query<GitLogResult>({ type: 'log', log: { ...filter, skip, limit: RESOURCE_BUDGET.historyPage } }); if (id === requestId.current && targetRepo === repoRef.current) acceptPage(next, skip); }
     catch (e) { if (id === requestId.current && targetRepo === repoRef.current) setError(errorText(e)); }
     finally { if (id === requestId.current && targetRepo === repoRef.current) setLoading(false); }
   };
   const locate = useCallback(async (value: string) => {
-    if (!value.trim() || busy) return;
+    if (!value.trim() || busy || suspended) return;
     const id = ++locateId.current; const targetRepo = repo; setLocating(true); setError('');
     try {
       const commit = await query<GitCommit>({ type: 'resolveRef', ref: value.trim() });
@@ -118,13 +157,20 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
       ++requestId.current; debounceRef.current = false; setFilter({ ...EMPTY_FILTER, branch: commit.hash }); setPathText(''); onSelect(commit.hash); setLocateOpen(false); setMenu(null);
     } catch (e) { if (id === locateId.current && targetRepo === repoRef.current) setError(errorText(e)); }
     finally { if (id === locateId.current) setLocating(false); }
-  }, [query, repo, busy, onSelect]);
-  useEffect(() => { if (!command) return; if (command.kind === 'branch') { updateFilter({ branch: command.value }); } else { setLocateText(command.value); void locate(command.value); } }, [command?.id]);
+  }, [query, repo, busy, onSelect, suspended]);
+  useEffect(() => { if (!command || suspended || handledCommand.current === command.id) return; handledCommand.current = command.id; if (command.kind === 'branch') { updateFilter({ branch: command.value }); } else { setLocateText(command.value); void locate(command.value); } }, [command?.id, suspended]);
   useEffect(() => { if (!locateOpen) return; locateRef.current?.focus(); locateRef.current?.select(); }, [locateOpen]);
-  useEffect(() => { if (!selected) return; rootRef.current?.querySelector<HTMLElement>(`[data-commit="${selected}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [selected, result]);
+  useEffect(() => {
+    if (preserveScroll.current) { preserveScroll.current = false; return; }
+    const index = result.commits.findIndex(commit => commit.hash === selected); const scroller = scrollRef.current;
+    if (index < 0 || !scroller) return;
+    const top = index * LOG_ROW_HEIGHT;
+    if (top < scroller.scrollTop) scroller.scrollTop = top;
+    else if (top + LOG_ROW_HEIGHT > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = top + LOG_ROW_HEIGHT - scroller.clientHeight;
+  }, [selected, result]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (blocked || busy || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (suspended || blocked || busy || !(event.ctrlKey || event.metaKey) || event.altKey) return;
       if (event.key.toLowerCase() === 'l') { event.preventDefault(); searchRef.current?.focus(); searchRef.current?.select(); }
       if (event.key.toLowerCase() === 'f') { event.preventDefault(); setLocateOpen(true); setMenu(null); }
     };
@@ -132,7 +178,7 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { setMenu(null); setLocateOpen(false); } };
     window.addEventListener('keydown', keydown); window.addEventListener('pointerdown', close); window.addEventListener('keydown', escape);
     return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('pointerdown', close); window.removeEventListener('keydown', escape); };
-  }, [blocked, busy]);
+  }, [blocked, busy, suspended]);
 
   const commits = result.commits;
   const graphFiltered = !!(filter.text || filter.author || filter.since || filter.until || filter.paths?.length || filter.firstParent || filter.noMerges);
@@ -185,7 +231,7 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
     <div className="panel-heading"><div className="panel-tab"><History size={15} />{t('提交历史')}<span>{commits.length}</span></div><div className="panel-heading-actions">
       {!source && <button type="button" className="icon-button" aria-label={t('加速日志查询')} title={`${t('加速日志查询')} · ${t('生成 Git 原生 commit-graph 缓存')}`} onClick={() => tool('writeCommitGraph')} disabled={busy}><Zap size={14} /></button>}
       {!source && iconButton('拣选选中提交', <GitCommitHorizontal size={15} />, () => tool('cherryPick'), !selected || busy || inCurrentBranch !== false)}
-      {iconButton('刷新 · Ctrl+R', <RefreshCw size={14} className={loading || refreshing ? 'spin' : ''} />, onRefresh, busy || refreshing)}
+      {iconButton('刷新 · Ctrl+R', <RefreshCw size={14} className={loading || refreshing ? 'spin' : ''} />, onRefresh, busy || refreshing || suspended)}
       {iconButton('定位提交、分支或标签 · Ctrl+F', <Search size={15} />, () => { setLocateOpen(current => !current); setMenu(null); }, busy)}
       {iconButton('日志显示选项', <Eye size={15} />, () => toggleMenu('view'))}
       {!source && iconButton('更多日志操作', <MoreHorizontal size={17} />, () => toggleMenu('more'))}
@@ -210,10 +256,11 @@ export default function LogPanel({ repo, snapshot, selected, busy, blocked, refr
     {(error || result.warning) && <div className="log-error" role="alert">{error || result.warning}</div>}
     <div className="log-graph-help"><span><i className="graph-key-node" />{t('提交节点图例')}</span><span><i className="graph-key-edge" />{t('父提交图例')}</span><span title={t('父提交在当前列表外')}>{t('列表外')}</span></div>
     <div className="log-head-scroll" ref={headRef} style={{ width: viewportWidth || undefined }} onScroll={event => { if (scrollRef.current && scrollRef.current.scrollLeft !== event.currentTarget.scrollLeft) scrollRef.current.scrollLeft = event.currentTarget.scrollLeft; }}><div className="commit-table-head log-table-head" style={tableStyle}>{visibleColumns.map(header)}</div></div>
-    <div className="commit-scroll" ref={scrollRef} aria-busy={loading} onScroll={event => { if (headRef.current && headRef.current.scrollLeft !== event.currentTarget.scrollLeft) headRef.current.scrollLeft = event.currentTarget.scrollLeft; }}>
-      {!!commits.length && <div className="log-rows" style={tableStyle}>{commits.map(commit => row(commit))}<div className="log-graph-viewport"><CommitGraph graph={graph} commits={commits} selected={selected} disabled={blocked || busy || loading} onSelect={onSelect} onParent={parentSelect} onContext={hash => { onSelect(hash); if (!source) setMenu('more'); }} /></div></div>}
-      {!commits.length && !loading && <div className="empty-state"><History size={27} /><strong>{filtered ? t('没有匹配的提交') : t('还没有提交')}</strong><p>{filtered ? t('调整筛选条件；搜索会查询仓库历史，而不局限于已加载记录。') : t('提交工作区更改后，历史会显示在这里。')}</p></div>}{loading && !commits.length && <div className="inline-loading"><Loader2 size={17} className="spin" />{t('查询仓库历史…')}</div>}{result.hasMore && <button className="load-more" disabled={loading} onClick={() => void loadMore()}>{t('加载更多提交')}</button>}
+    <div className="commit-scroll" ref={scrollRef} aria-busy={loading} onScroll={event => { if (!suspended && !loading) { retainedView.current.top = event.currentTarget.scrollTop; retainedView.current.left = event.currentTarget.scrollLeft; } if (headRef.current && headRef.current.scrollLeft !== event.currentTarget.scrollLeft) headRef.current.scrollLeft = event.currentTarget.scrollLeft; }}>
+      {!!commits.length && <div className="log-rows" style={tableStyle}><div aria-hidden="true" style={{ height: virtual.before }} />{commits.slice(virtual.start, virtual.end).map(commit => row(commit))}<div aria-hidden="true" style={{ height: virtual.after }} /><div className="log-graph-viewport"><CommitGraph graph={graph} commits={commits} startRow={virtual.start} endRow={virtual.end} rowHeight={LOG_ROW_HEIGHT} selected={selected} disabled={blocked || busy || loading} onSelect={onSelect} onParent={parentSelect} onContext={hash => { onSelect(hash); if (!source) setMenu('more'); }} /></div></div>}
+      {!commits.length && !loading && <div className="empty-state"><History size={27} /><strong>{filtered ? t('没有匹配的提交') : t('还没有提交')}</strong><p>{filtered ? t('调整筛选条件；搜索会查询仓库历史，而不局限于已加载记录。') : t('提交工作区更改后，历史会显示在这里。')}</p></div>}{loading && !commits.length && <div className="inline-loading"><Loader2 size={17} className="spin" />{t('查询仓库历史…')}</div>}
     </div>
+    {(pageStart > 0 || result.hasMore) && <nav className="resource-pager history-pages" aria-label={t('历史分页')}><span>{t('当前记录')} {pageStart + 1}–{pageStart + commits.length} · {t('翻页查看完整历史')}</span><button disabled={loading || pageStart === 0} onClick={() => void loadPage(Math.max(0, pageStart - RESOURCE_BUDGET.historyPage))}>{t('上一页')}</button><button disabled={loading || !result.hasMore} onClick={() => void loadPage(result.nextSkip)}>{t('下一页')}</button></nav>}
     <div className="history-bottom"><span>{loading ? <Loader2 size={11} className="spin" /> : <span className="live-dot" />}{commits.length} {t('条提交')}{filtered && ` · ${t('已筛选')}`}{result.hasMore && ` · ${t('还有更多')}`}</span><span>{(filter.branch && source ? source.refLabel(filter.branch) : filter.branch) || t('所有分支')} · {filter.order === 'date' ? t('日期排序') : t('拓扑排序')}</span></div>
   </section>;
 }

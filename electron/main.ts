@@ -1,11 +1,12 @@
 import { setBundledGit, setBundledGitPreferred } from './git-runtime';
+import { maintainRuntimeCache, resourceUsage, clearRuntimeCache } from './resource-service';
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import * as git from './git-service';
 import { DEFAULT_PREFERENCES } from '../shared/types';
-import type { AppSettings, CommitFileSelection, GitAction, GitWorkingState, RepoEntry } from '../shared/types';
+import type { AppSettings, CommitFileSelection, GitAction, GitWorkingState, RepoEntry, WindowClosePrompt, WindowCloseResponse } from '../shared/types';
 import { APP_THEMES, normalizeSettings, validatePreferences } from './settings-service';
 import { msg, msgf, setMessageLanguage } from '../shared/messages';
 import { canonicalRendererPath, createRendererUrlValidator } from './renderer-origin';
@@ -37,8 +38,8 @@ let saveQueue = Promise.resolve();
 let activeOperations = 0;
 let executableChangeInProgress = false;
 let pendingSettingsWrites = 0;
-let closeNoticeOpen = false;
-let closeChoiceOpen = false;
+let closePrompt: WindowClosePrompt | null = null;
+let resolvingCloseChoice = false;
 let companion: DesktopCompanion | undefined;
 let quitting = false;
 const approvedRepos = new Set<string>();
@@ -52,6 +53,30 @@ const rendererUrlMatches = devUrl ? () => false : createRendererUrlValidator(ren
 const miniRendererFile = devUrl ? '' : canonicalRendererPath(path.join(__dirname, '../dist/mini.html'));
 const miniRendererUrlMatches = devUrl ? () => false : createRendererUrlValidator(miniRendererFile);
 const repoKey = (value: string) => path.resolve(value).toLowerCase();
+const readRequests = new Map<string, AbortController>();
+let resourceTimer: NodeJS.Timeout | undefined;
+app.commandLine.appendSwitch('disk-cache-size', String(32 * 1024 * 1024));
+
+async function readQuery(surface: 'main' | 'mini', repo: string, query: import('../shared/types').GitQuery, requestKey?: unknown) {
+  if (requestKey === undefined) return git.query(repo, query);
+  if (typeof requestKey !== 'string' || !requestKey || requestKey.length > 200) throw new Error('无效的查询标识。');
+  const key = `${surface}:${requestKey}`;
+  readRequests.get(key)?.abort();
+  if (readRequests.size >= 128 && !readRequests.has(key)) throw new Error('读取请求过多，请稍后重试。');
+  const controller = new AbortController();
+  readRequests.set(key, controller);
+  try { return await git.query(repo, query, controller.signal); }
+  finally { if (readRequests.get(key) === controller) readRequests.delete(key); }
+}
+function pruneSessionMetadata(): void {
+  for (const [id, plan] of workspacePlans) if (Date.now() - plan.created > 600_000) workspacePlans.delete(id);
+  if (activeOperations) return;
+  const locations = new Set(settings.repos.map(entry => repoKey(entry.path)));
+  for (const root of workspaceRepositories.keys()) if (!locations.has(root) && !workspaceRuns.has(root)) workspaceRepositories.delete(root);
+  for (const root of approvedWorkspaces) if (!locations.has(root) && !workspaceRuns.has(root)) approvedWorkspaces.delete(root);
+  const members = new Set([...workspaceRepositories.values()].flatMap(entries => entries.map(entry => repoKey(entry.path))));
+  for (const repo of approvedRepos) if (!locations.has(repo) && !members.has(repo)) approvedRepos.delete(repo);
+}
 
 async function withOperation<T>(work: () => Promise<T>): Promise<T> {
   if (executableChangeInProgress) throw new Error('正在验证并切换 Git 程序，请稍后再执行 Git 操作。');
@@ -76,37 +101,48 @@ async function persist(next: AppSettings) {
   if (window && !window.isDestroyed()) window.webContents.send('gv:preferences:changed', preferences);
   companion?.publish();
 }
-function showOperationCloseNotice(): void {
-  if (closeNoticeOpen || !window || window.isDestroyed()) return;
-  closeNoticeOpen = true;
-  void dialog.showMessageBox(window, { type: 'info', title: msg('操作正在执行'), message: msg('请等待当前 Git 操作或设置保存完成后关闭窗口。'), buttons: [msg('继续等待')] }).finally(() => { closeNoticeOpen = false; });
+function publishClosePrompt(prompt: WindowClosePrompt | null): void {
+  closePrompt = prompt;
+  if (window && !window.isDestroyed()) window.webContents.send('gv:window:close-prompt', prompt);
 }
-async function requestWindowClose(): Promise<void> {
-  if (closeChoiceOpen || !window || window.isDestroyed()) return;
-  closeChoiceOpen = true;
+function openClosePrompt(kind: WindowClosePrompt['kind']): void {
+  if (closePrompt || !window || window.isDestroyed()) return;
+  if (!window.isVisible() || window.isMinimized()) {
+    if (companion) companion.restore();
+    else { window.restore(); window.show(); }
+  }
+  publishClosePrompt({ id: randomUUID(), kind });
+}
+const cannotQuit = () => activeOperations > 0 || executableChangeInProgress || pendingSettingsWrites > 0;
+function showOperationCloseNotice(): void { openClosePrompt('busy'); }
+function applyWindowClose(behavior: 'quit' | 'tray'): void {
+  if (!window || window.isDestroyed() || quitting) return;
+  if (behavior === 'quit') app.quit();
+  else if (companion) companion.hide();
+  else window.hide();
+}
+function requestWindowClose(): void {
+  if (closePrompt || resolvingCloseChoice || !window || window.isDestroyed()) return;
+  if (settings.closeBehavior === 'ask') openClosePrompt('choice');
+  else applyWindowClose(settings.closeBehavior);
+}
+async function respondToWindowClose(value: unknown): Promise<void> {
+  const response = value as Partial<WindowCloseResponse> | null;
+  if (!response || typeof response.id !== 'string' || !['quit', 'tray', 'cancel'].includes(response.action || '') || typeof response.remember !== 'boolean') throw new Error('无效的关闭选项。');
+  if (!closePrompt || response.id !== closePrompt.id) throw new Error('关闭提示已失效，请重新操作。');
+  if (resolvingCloseChoice) throw new Error('正在处理关闭请求，请稍候。');
+  if (response.action === 'cancel') { publishClosePrompt(null); return; }
+  if (closePrompt.kind !== 'choice') throw new Error('请等待当前 Git 操作或设置保存完成后关闭窗口。');
+  const behavior = response.action as 'quit' | 'tray';
+  if (behavior === 'quit' && cannotQuit()) throw new Error('请等待当前 Git 操作或设置保存完成后关闭窗口。');
+  resolvingCloseChoice = true;
   try {
-    let behavior = settings.closeBehavior;
-    if (behavior === 'ask') {
-      const choice = await dialog.showMessageBox(window, {
-        type: 'question', title: msg('关闭 GitVista'), message: msg('关闭窗口时要执行什么操作？'),
-        detail: msg('隐藏到系统托盘后，GitVista 将继续运行，可从屏幕右下角托盘重新打开。你可以随时在设置中更改此选择。'),
-        buttons: [msg('退出软件'), msg('隐藏到系统托盘'), msg('取消')], defaultId: 1, cancelId: 2, noLink: true,
-        checkboxLabel: msg('以后不再提示'), checkboxChecked: false,
-      });
-      if (choice.response !== 0 && choice.response !== 1) return;
-      behavior = choice.response === 0 ? 'quit' : 'tray';
-      if (choice.checkboxChecked) {
-        const closeBehavior = behavior;
-        await queueSettings(() => persist({ ...settings, closeBehavior }));
-      }
-    }
-    if (!window || window.isDestroyed() || quitting) return;
-    if (behavior === 'quit') app.quit();
-    else if (companion) companion.hide();
-    else window.hide();
-  } catch (error) {
-    if (window && !window.isDestroyed()) await dialog.showMessageBox(window, { type: 'error', title: msg('无法保存关闭偏好'), message: localized(error).message, buttons: [msg('取消')] });
-  } finally { closeChoiceOpen = false; }
+    if (response.remember) await queueSettings(() => persist({ ...settings, closeBehavior: behavior }));
+    // The operation state can change while the preference is being written.
+    if (behavior === 'quit' && cannotQuit()) throw new Error('请等待当前 Git 操作或设置保存完成后关闭窗口。');
+    publishClosePrompt(null);
+    applyWindowClose(behavior);
+  } finally { resolvingCloseChoice = false; }
 }
 async function registerRepo(value: string): Promise<RepoEntry> {
   const entry = await git.openRepository(value);
@@ -178,6 +214,7 @@ async function workspacePreview(root: string, requested: unknown, includeChanges
   }
   for (const [id, plan] of workspacePlans) if (plan.root === repoKey(root) || Date.now() - plan.created > 600_000) workspacePlans.delete(id);
   workspacePlans.set(result.id, { root: repoKey(root), created: Date.now(), plans });
+  while (workspacePlans.size > 4) workspacePlans.delete(workspacePlans.keys().next().value!);
   return result;
 }
 async function workspaceBatch(root: string, request: WorkspaceBatch): Promise<WorkspaceProgress[]> {
@@ -261,6 +298,17 @@ function handle(channel: string, fn: (...args: any[]) => unknown) {
   });
 }
 function installHandlers() {
+  handle('gv:resources', resourceUsage);
+  handle('gv:resources:clear', clearRuntimeCache);
+  ipcMain.on('gv:query:cancel', (event, requestKey) => {
+    try {
+      trustedSender(event, true);
+      if (typeof requestKey !== 'string' || requestKey.length > 200) return;
+      readRequests.get(`${event.sender === miniWindow?.webContents ? 'mini' : 'main'}:${requestKey}`)?.abort();
+    } catch { /* Ignore messages from a window that is closing or untrusted. */ }
+  });
+  handle('gv:window:close-prompt', () => closePrompt);
+  handle('gv:window:close-response', respondToWindowClose);
   const requireMiniRepo = (repo: unknown) => {
     requireRepo(repo);
     const current = settings.lastRepo;
@@ -272,10 +320,10 @@ function installHandlers() {
     requireRepo(context);
     return [{ path: context, name: path.basename(context), lastOpened: '' }];
   });
-  handle('gv:mini:query', async (repo, query) => {
+  handle('gv:mini:query', async (repo, query, requestKey) => {
     requireMiniRepo(repo);
     if (!query || !['status', 'pushPreview', 'diff', 'commitFiles'].includes(query.type)) throw new Error('不支持的 Git 查询。');
-    return git.query(repo, query);
+    return readQuery('mini', repo, query, requestKey);
   });
   handle('gv:mini:action', async (repo, request) => {
     requireMiniRepo(repo);
@@ -405,7 +453,7 @@ function installHandlers() {
     const entry = await withOperation(() => git.initRepository(target));
     return registerRepo(entry.path);
   });
-  handle('gv:query', async (repo, query) => { requireRepo(repo); return git.query(repo, query); });
+  handle('gv:query', async (repo, query, requestKey) => { requireRepo(repo); return readQuery('main', repo, query, requestKey); });
   handle('gv:action', async (repo, action: GitAction) => {
     requireRepo(repo);
     if (!action || typeof action.type !== 'string') throw new Error('无效的 Git 操作。');
@@ -464,7 +512,7 @@ async function createWindow() {
   window.on('closed', () => { window = null; });
   if (devUrl) await window.loadURL(devUrl); else await window.loadFile(rendererFile);
 }
-async function createMiniWindow() {
+function createMiniWindow(): BrowserWindow {
   miniWindow = new BrowserWindow({
     width: COMPACT_WIDTH, height: HEIGHT, frame: false, transparent: true, backgroundColor: '#00000000',
     thickFrame: false, hasShadow: false, resizable: false, maximizable: false,
@@ -475,7 +523,9 @@ async function createMiniWindow() {
   miniWindow.webContents.on('will-navigate', event => event.preventDefault());
   miniWindow.on('close', event => { if (!quitting) { event.preventDefault(); companion?.hide(); } });
   miniWindow.on('closed', () => { miniWindow = null; });
-  if (devUrl) await miniWindow.loadURL(`${devUrl}/mini.html`); else await miniWindow.loadFile(miniRendererFile);
+  const loading = devUrl ? miniWindow.loadURL(`${devUrl}/mini.html`) : miniWindow.loadFile(miniRendererFile);
+  void loading.catch(error => console.error('迷你窗口加载失败：', String(error)));
+  return miniWindow;
 }
 if (process.env.GITVISTA_USER_DATA && !app.isPackaged) app.setPath('userData', path.resolve(process.env.GITVISTA_USER_DATA));
 const hasLock = app.requestSingleInstanceLock();
@@ -490,9 +540,12 @@ else {
     }
     quitting = true;
   });
-  app.on('will-quit', () => { companion?.dispose(); clearCredentials(); });
+  app.on('will-quit', () => { companion?.dispose(); clearCredentials(); clearInterval(resourceTimer); for (const controller of readRequests.values()) controller.abort(); readRequests.clear(); git.cancelReadQueries(); });
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null);
+    await maintainRuntimeCache().catch(error => console.warn('缓存维护已跳过：', String(error)));
+    resourceTimer = setInterval(() => { pruneSessionMetadata(); void resourceUsage().catch(() => {}); }, 10 * 60_000);
+    resourceTimer.unref();
     settingsPath = path.join(app.getPath('userData'), 'settings.json');
     try {
       const loaded = JSON.parse(await fs.readFile(settingsPath, 'utf8'));
@@ -510,8 +563,7 @@ else {
     else if (settings.lastRepo) { try { await openLocation(settings.lastRepo); } catch { /* Keep a missing recent location visible for the user to reopen. */ } }
     installHandlers();
     await createWindow();
-    await createMiniWindow();
-    companion = new DesktopCompanion(window!, miniWindow!, {
+    companion = new DesktopCompanion(window!, createMiniWindow, {
       settings: () => settings, busy: () => activeOperations > 0 || pendingSettingsWrites > 0 || executableChangeInProgress,
       log: async repo => {
         try {

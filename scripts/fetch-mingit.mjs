@@ -10,17 +10,18 @@
  *
  * 已存在且版本一致时直接跳过，避免每次打包都重新下载约 45 MB。
  */
-import { createHash } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
+import { windowsPowerShellEnvironment } from './windows-powershell.mjs';
 
 const execute = promisify(execFile);
 
-// 固定版本与校验值：构建产物可复现，且不会被上游的静默替换影响。
+// 固定版本；摘要用于诊断，不冒充发布方提供的签名或固定校验值。
 const MINGIT_VERSION = '2.47.1';
 const MINGIT_TAG = `v${MINGIT_VERSION}.windows.1`;
 const ARCHIVE = `MinGit-${MINGIT_VERSION}-64-bit.zip`;
@@ -38,7 +39,7 @@ async function exists(target) {
 
 async function download(url, destination) {
   process.stdout.write(`下载 MinGit ${MINGIT_VERSION}\n  ${url}\n`);
-  const response = await fetch(url, { redirect: 'follow' });
+  const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(300_000) });
   if (!response.ok) throw new Error(`下载失败：HTTP ${response.status} ${response.statusText}`);
   if (!response.body) throw new Error('下载失败：响应没有内容。');
   await pipeline(response.body, createWriteStream(destination));
@@ -57,7 +58,7 @@ async function extract(archive, destination) {
   }
   await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
     `Expand-Archive -LiteralPath '${archive.replace(/'/g, "''")}' -DestinationPath '${destination.replace(/'/g, "''")}' -Force`,
-  ], { windowsHide: true, timeout: 300_000 });
+  ], { windowsHide: true, timeout: 300_000, env: windowsPowerShellEnvironment() });
 }
 
 async function verify(directory) {
@@ -73,7 +74,6 @@ async function verify(directory) {
 
 async function main() {
   const force = process.argv.includes('--force');
-  const archivePath = path.join(root, 'vendor', ARCHIVE);
 
   if (!force && await exists(vendor) && await exists(stampFile)) {
     const stamped = (await readFile(stampFile, 'utf8')).trim();
@@ -89,23 +89,31 @@ async function main() {
   }
 
   await mkdir(path.join(root, 'vendor'), { recursive: true });
-  await rm(vendor, { recursive: true, force: true });
-  await download(SOURCE, archivePath);
-
-  // 记录压缩包摘要，便于排查构建时拿到的是什么内容。
-  const digest = createHash('sha256').update(await readFile(archivePath)).digest('hex');
-  console.log(`  sha256 ${digest}`);
-
-  await extract(archivePath, vendor);
-  const { version } = await verify(vendor);
-  await writeFile(stampFile, `${MINGIT_VERSION}\n`, 'utf8');
-  await rm(archivePath, { force: true });
-  console.log(`内置 Git 就绪：${version}\n  ${vendor}`);
+  const stage = path.join(root, 'vendor', `.mingit-${randomUUID()}`);
+  await mkdir(stage);
+  await writeFile(path.join(stage, '.gitvista-download.json'), JSON.stringify({ owner: 'cn.gitvista.mingit', schema: 1, pid: process.pid, created: new Date().toISOString() }));
+  const archivePath = path.join(stage, ARCHIVE);
+  const expanded = path.join(stage, 'expanded');
+  const manage = async publish => execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'scripts', 'manage-mingit.ps1'), '-StagingDirectory', stage, ...(publish ? ['-Publish'] : [])], { windowsHide: true, timeout: 120_000, env: windowsPowerShellEnvironment() });
+  try {
+    await download(SOURCE, archivePath);
+    const digest = createHash('sha256');
+    for await (const chunk of createReadStream(archivePath)) digest.update(chunk);
+    console.log(`  sha256 ${digest.digest('hex')}`);
+    await extract(archivePath, expanded);
+    const { version } = await verify(expanded);
+    if (!version.startsWith(`git version ${MINGIT_VERSION}.`)) throw new Error(`下载版本与要求不符：${version}`);
+    await writeFile(path.join(stage, '.mingit-version'), `${MINGIT_VERSION}\n`, 'utf8');
+    await manage(true);
+    console.log(`内置 Git 就绪：${version}\n  ${vendor}`);
+  } finally {
+    await manage(false).catch(error => console.warn(`下载暂存目录保留待恢复：${error.message}`));
+  }
 }
 
 main().catch(error => {
   console.error(`\n准备内置 Git 失败：${error.message}`);
   console.error('可以设置 GITVISTA_MINGIT_URL 指向本地或镜像中的 MinGit 压缩包后重试。');
-  console.error('跳过内置 Git 时打包仍可完成，但未安装 Git 的电脑将无法使用。');
+  console.error('已保留此前可用的内置 Git；本次打包停止，请修正下载地址后重试。');
   process.exit(1);
 });

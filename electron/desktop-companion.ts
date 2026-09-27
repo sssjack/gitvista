@@ -75,17 +75,29 @@ export class DesktopCompanion {
   private movedAt = 0;
   private hoveredAt = Date.now();
   private enteredAt = 0;
-  private ticker: NodeJS.Timeout;
-  private refresher: NodeJS.Timeout;
-  constructor(private mainWindow: BrowserWindow, private window: BrowserWindow, private dependencies: Dependencies) {
+  private ticker?: NodeJS.Timeout;
+  private refresher?: NodeJS.Timeout;
+  private miniWindow: BrowserWindow | null = null;
+  private refreshTask?: Promise<void>;
+  private disposed = false;
+  private get window(): BrowserWindow {
+    if (!this.miniWindow || this.miniWindow.isDestroyed()) {
+      this.miniWindow = this.createMiniWindow();
+      this.miniWindow.on('will-move', this.beginMove);
+      this.miniWindow.on('moved', this.endMove);
+      this.miniWindow.webContents.once('did-finish-load', () => this.publish());
+    }
+    return this.miniWindow;
+  }
+  constructor(private mainWindow: BrowserWindow, private createMiniWindow: () => BrowserWindow, private dependencies: Dependencies) {
     this.tray = new Tray(path.join(__dirname, '../assets/icon.ico'));
     this.tray.on('click', () => this.restore());
     this.tray.on('double-click', () => this.restore());
     this.tray.on('right-click', () => this.publish());
-    this.window.on('will-move', this.beginMove);
-    this.window.on('moved', this.endMove);
-    this.ticker = setInterval(() => this.tick(), 50);
-    this.refresher = setInterval(() => { if (!this.dependencies.busy()) void this.refresh(); }, 30_000);
+    this.mainWindow.on('show', this.visibilityChanged);
+    this.mainWindow.on('hide', this.visibilityChanged);
+    this.mainWindow.on('minimize', this.visibilityChanged);
+    this.mainWindow.on('restore', this.visibilityChanged);
     screen.on('display-metrics-changed', this.reposition);
     screen.on('display-removed', this.reposition);
     this.publish();
@@ -97,7 +109,7 @@ export class DesktopCompanion {
   }
   private t = (text: string) => translate(this.dependencies.settings().language, text);
   publish(): void {
-    if (this.window.isDestroyed() || this.tray.isDestroyed()) return;
+    if (this.disposed || this.tray.isDestroyed()) return;
     const state = this.state();
     const repoName = state.repo ? path.basename(state.repo) : this.t('未打开仓库');
     this.tray.setToolTip(`GitVista · ${repoName}${this.commits[0] ? `\n${this.commits[0].short} ${this.commits[0].subject}` : ''}`.slice(0, 120));
@@ -113,20 +125,39 @@ export class DesktopCompanion {
       { type: 'separator' },
       { label: this.t('退出'), click: this.dependencies.quit },
     ]));
-    this.window.webContents.send('gv:desktop:state', state);
+    if (this.miniWindow && !this.miniWindow.isDestroyed()) this.miniWindow.webContents.send('gv:desktop:state', state);
     if (!this.mainWindow.isDestroyed()) this.mainWindow.webContents.send('gv:desktop:state', state);
   }
-  async refresh(): Promise<void> {
+  private visible(): boolean { return (!this.mainWindow.isDestroyed() && this.mainWindow.isVisible() && !this.mainWindow.isMinimized()) || !!(this.miniWindow && !this.miniWindow.isDestroyed() && this.miniWindow.isVisible()); }
+  private visibilityChanged = (): void => {
+    clearInterval(this.ticker); this.ticker = undefined;
+    if (this.mode === 'mini' && this.miniWindow?.isVisible()) this.ticker = setInterval(() => this.tick(), 50);
+    clearTimeout(this.refresher); this.refresher = undefined;
+    if (!this.disposed && this.visible() && !this.refreshTask) this.refresher = setTimeout(() => { if (this.dependencies.busy()) this.visibilityChanged(); else void this.refresh(); }, 30_000);
+  };
+  refresh(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    if (this.refreshTask) return this.refreshTask;
+    clearTimeout(this.refresher);
+    this.refreshTask = this.performRefresh().finally(() => {
+      this.refreshTask = undefined;
+      if (this.disposed) return;
+      if (this.repo !== (this.dependencies.settings().lastRepo || '')) void this.refresh();
+      else this.visibilityChanged();
+    });
+    return this.refreshTask;
+  }
+  private async performRefresh(): Promise<void> {
     const repo = this.dependencies.settings().lastRepo || '';
     const generation = ++this.refreshGeneration;
     if (repo !== this.repo) { this.repo = repo; this.commits = []; this.error = ''; this.publish(); }
     if (!repo) { this.commits = []; this.publish(); return; }
     try {
       const result = await this.dependencies.log(repo);
-      if (generation !== this.refreshGeneration || repo !== this.dependencies.settings().lastRepo) return;
+      if (this.disposed || generation !== this.refreshGeneration || repo !== this.dependencies.settings().lastRepo) return;
       this.commits = result.commits;
     } catch (error) {
-      if (generation === this.refreshGeneration) this.error = error instanceof Error ? error.message : String(error);
+      if (!this.disposed && generation === this.refreshGeneration) this.error = error instanceof Error ? error.message : String(error);
     }
     this.publish();
   }
@@ -157,7 +188,7 @@ export class DesktopCompanion {
       await this.refresh();
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
-      if (!this.window.isVisible()) this.tray.displayBalloon({ title: `GitVista · ${this.t('拉取更新')}`, content: this.error.slice(0, 240), iconType: 'error' });
+      if (!this.miniWindow?.isVisible()) this.tray.displayBalloon({ title: `GitVista · ${this.t('拉取更新')}`, content: this.error.slice(0, 240), iconType: 'error' });
     } finally {
       this.working = false; this.publish();
       this.mainWindow.webContents.send('gv:repository:refresh');
@@ -176,16 +207,18 @@ export class DesktopCompanion {
     }
     this.mainWindow.hide();
     this.window.showInactive(); this.publish();
+    this.visibilityChanged(); void this.refresh();
   }
   restore(): void {
     if (this.mainWindow.isDestroyed()) return;
     if (this.mode === 'mini') {
       this.stopAnimation();
       this.mode = 'main'; this.panel = null; this.collapsed = false; this.expanded = false; this.edge = null; this.dragging = false;
-      this.window.hide();
+      this.miniWindow?.hide();
     }
     if (this.mainWindow.isMinimized()) this.mainWindow.restore();
     this.mainWindow.show(); this.mainWindow.focus(); this.publish();
+    this.visibilityChanged(); void this.refresh();
     this.mainWindow.webContents.send('gv:repository:refresh');
   }
   hide = (): void => {
@@ -195,8 +228,9 @@ export class DesktopCompanion {
       this.expanded = false; this.collapsed = false;
       this.applyFrame(this.compactBounds); this.publish();
     }
-    this.window.hide();
+    this.miniWindow?.hide();
     this.mainWindow.hide();
+    this.visibilityChanged();
   };
   private chooseDirection(area: Rectangle): void {
     if (!this.compactBounds) return;
@@ -314,10 +348,15 @@ export class DesktopCompanion {
     }
   }
   dispose(): void {
-    clearInterval(this.ticker); clearInterval(this.refresher);
+    this.disposed = true; ++this.refreshGeneration;
+    clearInterval(this.ticker); clearTimeout(this.refresher);
     this.stopAnimation();
-    this.window.removeListener('will-move', this.beginMove);
-    this.window.removeListener('moved', this.endMove);
+    this.miniWindow?.removeListener('will-move', this.beginMove);
+    this.miniWindow?.removeListener('moved', this.endMove);
+    this.mainWindow.removeListener('show', this.visibilityChanged);
+    this.mainWindow.removeListener('hide', this.visibilityChanged);
+    this.mainWindow.removeListener('minimize', this.visibilityChanged);
+    this.mainWindow.removeListener('restore', this.visibilityChanged);
     screen.removeListener('display-metrics-changed', this.reposition);
     screen.removeListener('display-removed', this.reposition);
     this.tray.destroy();

@@ -1,6 +1,6 @@
 {
   "name": "gitvista",
-  "version": "0.9.6",
+  "version": "0.9.8",
   "private": true,
   "description": "GitVista — 看清每一次变更",
   "author": "GitVista",
@@ -15,13 +15,13 @@
     "fetch:mingit": "node scripts/fetch-mingit.mjs",
     "prepackage": "node scripts/fetch-mingit.mjs",
     "prepackage:dir": "node scripts/fetch-mingit.mjs",
-    "package": "npm run build && electron-builder --win portable --x64",
-    "package:dir": "npm run build && electron-builder --win --dir --x64"
-  },
-  "dependencies": {
-    "lucide-react": "1.48.0",
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "package": "npm run build && node scripts/package.mjs",
+    "package:dir": "npm run build && node scripts/package.mjs --dir",
+    "postpackage": "npm run clean:artifacts",
+    "postpackage:dir": "npm run clean:artifacts",
+    "clean:artifacts": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/cleanup-artifacts.ps1",
+    "install:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-local.ps1",
+    "validation:run": "node scripts/validation-run.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
@@ -33,7 +33,10 @@
     "esbuild": "^0.27.0",
     "playwright": "^1.58.0",
     "typescript": "7.0.2",
-    "vite": "8.3.0"
+    "vite": "8.3.0",
+    "lucide-react": "1.48.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "build": {
     "appId": "cn.gitvista.desktop",
@@ -45,11 +48,14 @@
       "dist/**/*",
       "dist-electron/**/*",
       "assets/*",
-      "package.json"
+      "package.json",
+      "!**/*.map",
+      "!node_modules/**/*"
     ],
     "asar": true,
     "win": {
       "target": [
+        "nsis",
         "portable"
       ],
       "icon": "assets/icon.ico",
@@ -63,6 +69,18 @@
         "from": "vendor/mingit",
         "to": "git"
       }
-    ]
+    ],
+    "afterSign": "scripts/installation-manifest.mjs",
+    "nsis": {
+      "artifactName": "GitVista-${version}-Setup-x64.exe",
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false,
+      "createDesktopShortcut": true,
+      "shortcutName": "GitVista",
+      "include": "scripts/installer.nsh"
+    }
   }
 }

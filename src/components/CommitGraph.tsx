@@ -4,8 +4,9 @@ import type { CommitGraphLayout } from '../lib/commit-graph';
 
 const color = (index: number) => `var(--graph-${index % 6})`;
 
-export default function CommitGraph({ graph, commits, selected, disabled, onSelect, onParent, onContext }: {
+export default function CommitGraph({ graph, commits, selected, disabled, onSelect, onParent, onContext, startRow = 0, endRow = commits.length, rowHeight = 30 }: {
   graph: CommitGraphLayout; commits: GitCommit[]; selected?: string; disabled: boolean;
+  startRow?: number; endRow?: number; rowHeight?: number;
   onSelect: (hash: string) => void; onParent: (hash: string, missing: boolean) => void;
   onContext: (hash: string) => void;
 }) {
@@ -17,7 +18,7 @@ export default function CommitGraph({ graph, commits, selected, disabled, onSele
   const label = (hash: string) => `${hash.slice(0, 8)} ${byHash.get(hash)?.subject || ''}`.trim();
   return <svg className="interactive-commit-graph" width={graph.width} height={graph.height}
     viewBox={`0 0 ${graph.width} ${Math.max(1, graph.height)}`} role="group" aria-label="可交互提交关系图">
-    {graph.edges.map(edge => {
+    {graph.edges.filter(edge => Math.max(edge.from.y, edge.to.y) >= startRow * rowHeight && Math.min(edge.from.y, edge.to.y) <= endRow * rowHeight).map(edge => {
       const active = hovered === edge.id || hovered === edge.childHash || hovered === edge.parentHash;
       const related = selected === edge.childHash || selected === edge.parentHash;
       const description = `${label(edge.childHash)} → 父提交 ${label(edge.parentHash)}${edge.missingParent ? '（当前列表外，点击定位并显示其历史）' : '（点击跳转）'}`;
@@ -33,7 +34,7 @@ export default function CommitGraph({ graph, commits, selected, disabled, onSele
         <path className="graph-edge-hit" d={edge.path} />
       </g>;
     })}
-    {graph.nodes.map(node => {
+    {graph.nodes.slice(startRow, endRow).map(node => {
       const commit = byHash.get(node.hash)!;
       const merge = commit.parents.length > 1;
       const description = `${merge ? '合并提交' : '提交'} ${label(node.hash)}，点击查看文件和代码`;

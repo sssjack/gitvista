@@ -10,6 +10,9 @@ import { msgf } from '../shared/messages';
 import type { AppLanguage, ActionResult, PushPreview, CommitDetail, DiffResult, GitAction, GitCommit, GitIdentity, GitIdentityUpdate, GitLogOptions, GitLogResult, GitQuery, GitRemote, GitSnapshot, GitTreeEntry, GitWorkingState, IdentityFields, RepoEntry } from '../shared/types';
 import { COMMIT_FORMAT, parseBranches, parseCommits, parseFileHistory, parseNameChanges, parseNumstat, parseStashes, parseStatus, parseTags, parseWorktrees } from './git-parse';
 import { normalizeGitPath } from './settings-service';
+import { abortError, checkReadCancelled, currentReadSignal, releaseGitOutput, reserveGitOutput, scheduleGit, sharedRead, terminateGitTree } from './git-resources';
+import { createGitTransaction, finishGitTransaction, reclaimGitTransactions, type GitTransaction } from './git-transactions';
+export { cancelReadQueries, getGitResourceUsage } from './git-resources';
 
 const MAX_OUTPUT = 16 * 1024 * 1024;
 const MAX_DIFF = 2 * 1024 * 1024;
@@ -22,8 +25,8 @@ let gitExecutable = 'git';
 let versionCache: { executable: string; value: Promise<string> } | undefined;
 const GLOBAL_ARGS = ['--no-pager', '--literal-pathspecs', '-c', 'color.ui=false', '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false', '-c', 'credential.interactive=false'];
 
-interface RunOptions { input?: string; timeout?: number; allowCodes?: number[]; maxOutput?: number; requireUtf8?: boolean; executable?: string; credentials?: ScopedCredential[]; configArgs?: string[]; env?: NodeJS.ProcessEnv; redact?: (text: string) => string }
-interface RunResult { stdout: string; stderr: string; code: number }
+interface RunOptions { input?: string; timeout?: number; allowCodes?: number[]; maxOutput?: number; truncate?: boolean; requireUtf8?: boolean; executable?: string; credentials?: ScopedCredential[]; configArgs?: string[]; env?: NodeJS.ProcessEnv; redact?: (text: string) => string }
+interface RunResult { stdout: string; stderr: string; code: number; truncated?: boolean }
 
 function cleanError(value: string): string {
   return value.replace(/(https?:\/\/)[^\s/@]+@/gi, '$1***@').replace(/\x1b\[[0-9;]*m/g, '').trim().slice(0, 6000);
@@ -37,9 +40,10 @@ function run(cwd: string, args: string[], options: RunOptions = {}): Promise<Run
 }
 function executeRun(cwd: string, args: string[], options: RunOptions): Promise<RunResult> {
   const redact = options.redact || ((value: string) => value);
-  return new Promise((resolve, reject) => {
+  return scheduleGit(cwd, signal => new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(abortError()); return; }
     const child = spawn(options.executable || gitExecutable, [...GLOBAL_ARGS, ...(options.configArgs || []), ...args], {
-      cwd, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+      cwd, shell: false, windowsHide: true, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...gitEnvironment(options.executable || gitExecutable), LC_ALL: 'C', LANG: 'C', GIT_TERMINAL_PROMPT: '0',
         GCM_INTERACTIVE: 'Never', GIT_OPTIONAL_LOCKS: '0', GIT_EDITOR: 'true', GIT_SEQUENCE_EDITOR: 'true',
@@ -50,24 +54,43 @@ function executeRun(cwd: string, args: string[], options: RunOptions): Promise<R
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let size = 0;
+    let reserved = 0;
+    let truncated = false;
     let failure: Error | undefined;
-    const timer = setTimeout(() => {
-      failure = new Error('Git 操作超时，请检查网络、凭据或仓库锁后重试。');
-      child.kill();
-    }, options.timeout ?? DEFAULT_TIMEOUT);
+    const freeBuffers = () => { if (signal) releaseGitOutput(reserved); reserved = 0; stdout.length = 0; stderr.length = 0; };
+    const stop = (error: Error) => {
+      if (failure) return;
+      failure = error;
+      freeBuffers();
+      terminateGitTree(child);
+    };
+    const abort = () => stop(abortError());
+    signal?.addEventListener('abort', abort, { once: true });
+    const timer = setTimeout(() => stop(new Error('Git 操作超时，请检查网络、凭据或仓库锁后重试。')), options.timeout ?? DEFAULT_TIMEOUT);
     const collect = (target: Buffer[]) => (chunk: Buffer) => {
+      if (failure || truncated) return;
       size += chunk.length;
       if (size > (options.maxOutput ?? MAX_OUTPUT)) {
-        failure = new Error('Git 输出超过安全限制，请缩小文件、提交或查询范围。');
-        child.kill();
+        if (options.truncate && target === stdout) {
+          const remaining = (options.maxOutput ?? MAX_OUTPUT) - reserved;
+          if (remaining > 0 && (!signal || reserveGitOutput(remaining))) { target.push(chunk.subarray(0, remaining)); reserved += remaining; }
+          truncated = true;
+          terminateGitTree(child);
+          return;
+        }
+        stop(new Error('Git 输出超过安全限制，请缩小文件、提交或查询范围。'));
         return;
       }
+      if (signal && !reserveGitOutput(chunk.length)) { stop(new Error('并行 Git 输出超过内存预算，请缩小查询范围后重试。')); return; }
+      reserved += chunk.length;
       target.push(chunk);
     };
     child.stdout.on('data', collect(stdout));
     child.stderr.on('data', collect(stderr));
     child.on('error', error => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      freeBuffers();
       reject(new Error((error as NodeJS.ErrnoException).code === 'ENOENT'
         ? '未找到 Git，请在设置中选择有效的 git.exe，或将 Git 加入 PATH。'
         : `无法启动 Git：${cleanError(redact(error.message))}`));
@@ -75,14 +98,17 @@ function executeRun(cwd: string, args: string[], options: RunOptions): Promise<R
     child.stdin.on('error', () => { /* Git 可能在读取输入前退出，实际错误由 close 处理。 */ });
     child.on('close', code => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       if (failure) { reject(failure); return; }
       const rawOutput = Buffer.concat(stdout);
+      const rawError = Buffer.concat(stderr);
+      freeBuffers();
       if (options.requireUtf8 && !isUtf8(rawOutput)) {
         reject(new Error('此文件不是有效的 UTF-8 文本，请使用支持原始编码的外部编辑器，避免保存时破坏内容。'));
         return;
       }
-      const result = { stdout: redact(rawOutput.toString('utf8')), stderr: redact(Buffer.concat(stderr).toString('utf8')), code: code ?? -1 };
-      if (result.code !== 0 && !(options.allowCodes || []).includes(result.code)) {
+      const result = { stdout: redact(rawOutput.toString('utf8')), stderr: redact(rawError.toString('utf8')), code: code ?? -1, truncated };
+      if (!truncated && result.code !== 0 && !(options.allowCodes || []).includes(result.code)) {
         const detail = cleanError(result.stderr || result.stdout);
         if (/(?:unable to read tree|bad tree object|missing (?:tree|blob) object)/i.test(detail)) {
           reject(new Error(`此历史版本引用的 Git 对象不可读取，无法显示完整差异。可先查看其他提交或工作区文件；请确认仓库对象完整后重试。\n${detail}`));
@@ -94,7 +120,7 @@ function executeRun(cwd: string, args: string[], options: RunOptions): Promise<R
       resolve(result);
     });
     child.stdin.end(options.input);
-  });
+  }));
 }
 
 async function output(repo: string, args: string[], options?: RunOptions): Promise<string> {
@@ -107,6 +133,8 @@ export async function configureGitExecutable(value: string): Promise<void> {
 }
 
 function gitVersion(repo: string): Promise<string> {
+  // In-flight cached reads must not inherit another subscriber's abort signal.
+  if (currentReadSignal() && !versionCache) return output(repo, ['--version']).then(result => result.trim());
   if (versionCache?.executable === gitExecutable) return versionCache.value;
   const executable = gitExecutable;
   const value = output(repo, ['--version'], { executable }).then(result => result.trim());
@@ -250,7 +278,7 @@ async function safePaths(repo: string, values: unknown): Promise<string[]> {
 async function rootOf(directory: string): Promise<string> {
   const candidate = path.resolve(required(directory, '仓库目录', 8192));
   const key = `${gitExecutable}\0${process.platform === 'win32' ? candidate.toLowerCase() : candidate}`;
-  const pending = pendingRoots.get(key);
+  const pending = currentReadSignal() ? undefined : pendingRoots.get(key);
   if (pending) return pending;
   // 合并两个 rev-parse，并只共享并行校验；不长期缓存目录，避免仓库移走或被替换后继续使用旧根目录。
   const task = (async () => {
@@ -260,7 +288,7 @@ async function rootOf(directory: string): Promise<string> {
     if (bare !== 'false' || !result.length) throw new Error('无法确认 Git 仓库的工作区目录。');
     return fs.realpath(result.join('\n'));
   })();
-  pendingRoots.set(key, task);
+  if (!currentReadSignal()) pendingRoots.set(key, task);
   try { return await task; } finally { if (pendingRoots.get(key) === task) pendingRoots.delete(key); }
 }
 
@@ -434,6 +462,12 @@ function diffResult(text: string): DiffResult {
   return { text: truncated ? text.slice(0, MAX_DIFF / 2) + '\n\n[差异内容过长，已截断显示]' : text, binary, truncated };
 }
 
+async function previewDiff(repo: string, args: string[], options: RunOptions = {}): Promise<DiffResult> {
+  const result = await run(repo, args, { ...options, maxOutput: MAX_DIFF, truncate: true });
+  if (result.truncated) return { text: result.stdout + '\n\n[差异内容过长，已截断显示]', binary: false, truncated: true };
+  return diffResult(result.stdout);
+}
+
 async function fileDiff(repo: string, request: GitQuery): Promise<DiffResult> {
   const selected = request.path ? await safePath(repo, request.path) : undefined;
   const previous = request.oldPath ? await safePath(repo, request.oldPath) : undefined;
@@ -441,18 +475,20 @@ async function fileDiff(repo: string, request: GitQuery): Promise<DiffResult> {
   const diffFlags = ['--no-ext-diff', '--no-textconv', '--find-renames', '--no-color', '--unified=5'];
   if (request.indexTree !== undefined) {
     if (!request.staged || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(request.indexTree)) throw new Error('暂存区预览版本不正确。');
-    const tree = (await output(repo, ['rev-parse', '--verify', '--end-of-options', `${request.indexTree}^{tree}`])).trim();
     const base = await commitRef(repo, request.base, 'HEAD');
-    return diffResult(await output(repo, ['diff', ...diffFlags, base, tree, '--', ...paths]));
+    return withIndexSnapshot(repo, async (tree, env) => {
+      if (tree !== request.indexTree) throw new Error('暂存区内容已变化，请重新审阅后提交。');
+      return previewDiff(repo, ['diff', ...diffFlags, base, tree, '--', ...paths], { env });
+    });
   }
   if (request.base && request.ref) {
     const base = await output(repo, ['rev-parse', '--verify', '--end-of-options', `${ref(request.base)}^{tree}`]);
     const target = await commitRef(repo, request.ref);
-    return diffResult(await output(repo, ['diff', ...diffFlags, base.trim(), target, '--', ...paths]));
+    return previewDiff(repo, ['diff', ...diffFlags, base.trim(), target, '--', ...paths]);
   }
   if (request.ref) {
     const hash = await commitRef(repo, request.ref);
-    return diffResult(await output(repo, ['show', '--format=', '--first-parent', '--diff-merges=first-parent', ...diffFlags, hash, '--', ...paths]));
+    return previewDiff(repo, ['show', '--format=', '--first-parent', '--diff-merges=first-parent', ...diffFlags, hash, '--', ...paths]);
   }
   if (selected && !request.staged) {
     let tracked = await output(repo, ['ls-files', '-z', '--', selected]);
@@ -464,11 +500,10 @@ async function fileDiff(repo: string, request: GitQuery): Promise<DiffResult> {
       const stat = await fs.stat(absolute);
       if (!stat.isFile()) throw new Error('请选择普通文件查看差异。');
       if (stat.size > MAX_FILE) return { text: '文件超过 4 MB，请使用外部编辑器查看。', binary: false, truncated: true };
-      const result = await run(repo, ['diff', '--no-index', '--no-ext-diff', '--no-textconv', '--no-color', '--', process.platform === 'win32' ? 'NUL' : '/dev/null', absolute], { allowCodes: [1] });
-      return diffResult(result.stdout);
+      return previewDiff(repo, ['diff', '--no-index', '--no-ext-diff', '--no-textconv', '--no-color', '--', process.platform === 'win32' ? 'NUL' : '/dev/null', absolute], { allowCodes: [1] });
     }
   }
-  return diffResult(await output(repo, ['diff', ...(request.staged ? ['--cached'] : []), ...diffFlags, ...(request.workingTree && !request.staged && await hasHead(repo) ? ['HEAD'] : []), '--', ...paths]));
+  return previewDiff(repo, ['diff', ...(request.staged ? ['--cached'] : []), ...diffFlags, ...(request.workingTree && !request.staged && await hasHead(repo) ? ['HEAD'] : []), '--', ...paths]);
 }
 
 async function commitDetail(repo: string, requested: string | undefined): Promise<CommitDetail> {
@@ -490,10 +525,16 @@ async function commitDetail(repo: string, requested: string | undefined): Promis
   };
 }
 
-export async function query(directory: string, request: GitQuery): Promise<unknown> {
+export function query(directory: string, request: GitQuery, signal?: AbortSignal): Promise<unknown> {
+  return sharedRead(directory, { executable: gitExecutable, request }, signal, () => queryUnshared(directory, request));
+}
+
+async function queryUnshared(directory: string, request: GitQuery): Promise<unknown> {
   if (!request || typeof request !== 'object') throw new Error('查询参数不正确。');
+  checkReadCancelled();
   const repo = await rootOf(directory);
   await waitForMutation(repo);
+  checkReadCancelled();
   switch (request.type) {
     case 'snapshot': return snapshot(repo, request);
     case 'pushPreview': return pushPreview(repo, request.remote);
@@ -526,7 +567,7 @@ export async function query(directory: string, request: GitQuery): Promise<unkno
     case 'compare': {
       const [from, to] = await Promise.all([commitRef(repo, request.ref, 'HEAD'), commitRef(repo, request.to, 'HEAD')]);
       const selected = request.path ? [await safePath(repo, request.path)] : [];
-      return diffResult(await output(repo, ['diff', '--no-ext-diff', '--no-textconv', '--find-renames', '--no-color', from, to, '--', ...selected]));
+      return previewDiff(repo, ['diff', '--no-ext-diff', '--no-textconv', '--find-renames', '--no-color', from, to, '--', ...selected]);
     }
     case 'blame': {
       const selected = await safePath(repo, request.path);
@@ -653,20 +694,32 @@ async function runFiles(repo: string, args: string[], files: string[]): Promise<
   return run(repo, [...args, '--pathspec-from-file=-', '--pathspec-file-nul'], { input: pathspecInput(files) });
 }
 
-async function snapshotIndexTree(repo: string): Promise<string> {
+async function withIndexSnapshot<T>(repo: string, work: (tree: string, env: NodeJS.ProcessEnv) => Promise<T>): Promise<T> {
   const index = (await output(repo, ['rev-parse', '--path-format=absolute', '--git-path', 'index'])).trim();
   await noSymlink(index);
-  const directory = await fs.mkdtemp(path.join(path.dirname(index), 'gitvista-preview-'));
+  const transaction = await createGitTransaction(path.dirname(path.resolve(index)), 'preview');
   try {
-    const copy = path.join(directory, 'index'), env = { GIT_INDEX_FILE: copy };
+    const copy = path.join(transaction.directory, 'index');
+    const env = { ...await isolatedObjects(repo, transaction.directory), GIT_INDEX_FILE: copy };
     if (await exists(index)) await fs.copyFile(index, copy);
     else await run(repo, ['read-tree', '--empty'], { env });
-    // write-tree may refresh the cache-tree extension. Keep even that metadata
-    // change out of the user's real index while capturing an immutable version.
-    return (await output(repo, ['write-tree'], { env })).trim();
+    // Both cache-tree index metadata and generated tree objects stay temporary.
+    // The repository's object directory is a read-only alternate, including for
+    // linked worktrees and SHA-256 repositories (no fixed empty-tree hash).
+    const tree = (await output(repo, ['write-tree'], { env })).trim();
+    return await work(tree, env);
   } finally {
-    if (path.dirname(directory) === path.dirname(index) && path.basename(directory).startsWith('gitvista-preview-')) await fs.rm(directory, { recursive: true, force: true });
+    await finishGitTransaction(transaction);
   }
+}
+
+async function isolatedObjects(repo: string, directory: string): Promise<NodeJS.ProcessEnv> {
+  const source = (await output(repo, ['rev-parse', '--path-format=absolute', '--git-path', 'objects'])).trim();
+  const target = path.join(directory, 'objects');
+  await fs.mkdir(target);
+  // Git accepts C-style quoted entries; quoting also protects a delimiter in a path.
+  const alternate = JSON.stringify(path.resolve(source).split(path.sep).join('/'));
+  return { GIT_OBJECT_DIRECTORY: target, GIT_ALTERNATE_OBJECT_DIRECTORIES: alternate + (process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES ? path.delimiter + process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES : '') };
 }
 
 /** Commit selected index entries without replacing them with the working tree. */
@@ -676,7 +729,17 @@ async function commitFiles(repo: string, request: GitAction, message: string): P
   if (selections !== undefined && (!Array.isArray(selections) || !selections.length || selections.length > 10_000
     || selections.some(selected => !selected || !['index', 'workingTree'].includes(selected.source)))) throw new Error('提交文件来源不正确。');
   const args = ['commit', '--file=-', ...(request.amend ? ['--amend'] : []), ...(request.signoff ? ['--signoff'] : [])];
-  if (selections === undefined && request.expectedIndexTree === undefined) return run(repo, args, { input: message, timeout: NETWORK_TIMEOUT });
+  if (selections === undefined && request.expectedIndexTree === undefined) {
+    const before = await hasHead(repo) ? await commitRef(repo, 'HEAD') : '';
+    try { return await run(repo, args, { input: message, timeout: NETWORK_TIMEOUT }); }
+    catch (error) {
+      let after: string;
+      try { after = await hasHead(repo) ? await commitRef(repo, 'HEAD') : ''; }
+      catch { throw new Error(`提交可能已经完成，但无法确认最终状态。请先检查提交历史，不要重复提交。\n${(error as Error).message}`); }
+      if (after !== before) throw Object.assign(new Error(`本地提交 ${after} 已创建，但后续命令未正常结束。请检查提交历史和暂存区，不要重复提交。\n${(error as Error).message}`), { commitHash: after || undefined });
+      throw error;
+    }
+  }
   if (selections && await operation(repo)) throw new Error('当前 Git 操作期间不能只提交部分文件，请取消文件勾选后提交整个暂存区。');
   if (selections) await safePaths(repo, selections.map(selected => selected.path));
 
@@ -690,17 +753,24 @@ async function commitFiles(repo: string, request: GitAction, message: string): P
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('暂存区正被其他 Git 操作使用，请稍后重试。');
     throw error;
   });
-  let directory: string | undefined, lockClosed = false, installed = false, committedHead = '';
+  let transaction: GitTransaction | undefined, lockClosed = false, installed = false, commitStarted = false, recoveryRequired = false, previousHead = '', committedHead = '';
   try {
-    directory = await fs.mkdtemp(path.join(path.dirname(index), 'gitvista-commit-'));
+    transaction = await createGitTransaction(path.dirname(path.resolve(index)), 'commit');
+    const directory = transaction.directory;
     const originalIndex = path.join(directory, 'original-index');
     const commitIndex = path.join(directory, 'commit-index');
     const originalEnv = { GIT_INDEX_FILE: originalIndex }, commitEnv = { GIT_INDEX_FILE: commitIndex };
     if (await exists(index)) await fs.copyFile(index, originalIndex);
     else await run(repo, ['read-tree', '--empty'], { env: originalEnv });
-    const originalTree = (await output(repo, ['write-tree'], { env: originalEnv })).trim();
-    if (request.expectedIndexTree !== undefined && originalTree !== request.expectedIndexTree) throw new Error('暂存区内容已变化，请重新审阅后提交。');
+    await fs.copyFile(originalIndex, path.join(directory, 'recovery-index'));
+    if (request.expectedIndexTree !== undefined) {
+      const verificationIndex = path.join(directory, 'verification-index');
+      await fs.copyFile(originalIndex, verificationIndex);
+      const originalTree = (await output(repo, ['write-tree'], { env: { ...await isolatedObjects(repo, directory), GIT_INDEX_FILE: verificationIndex } })).trim();
+      if (originalTree !== request.expectedIndexTree) throw new Error('暂存区内容已变化，请重新审阅后提交。');
+    }
     const head = await hasHead(repo) ? await commitRef(repo, 'HEAD') : '';
+    previousHead = head;
     if (request.expectedHead !== undefined && head !== request.expectedHead) throw new Error('待提交内容已变化，请重新审阅后提交。');
     const matches = (file: string, scopes: string[]) => scopes.some(scope => file === scope || file.startsWith(scope + '/'));
     const recordPath = (record: string) => record.slice(record.indexOf('\t') + 1);
@@ -727,6 +797,7 @@ async function commitFiles(repo: string, request: GitAction, message: string): P
       await fs.copyFile(originalIndex, commitIndex);
     }
     if ((await hasHead(repo) ? await commitRef(repo, 'HEAD') : '') !== head) throw new Error('待提交内容已变化，请重新审阅后提交。');
+    commitStarted = true;
     const result = await run(repo, args, { input: message, timeout: NETWORK_TIMEOUT, env: commitEnv });
     committedHead = await commitRef(repo, 'HEAD');
     if (selections) {
@@ -754,12 +825,24 @@ async function commitFiles(repo: string, request: GitAction, message: string): P
     await fs.rename(lockPath, index); installed = true;
     return result;
   } catch (error) {
-    if (committedHead) throw new Error(`${msgf('本地提交 {0} 已创建，但暂存区同步失败，请检查仓库状态，不要重复提交。', committedHead)}\n${(error as Error).message}`);
+    if (commitStarted && !installed) {
+      try {
+        const observedHead = await hasHead(repo) ? await commitRef(repo, 'HEAD') : '';
+        recoveryRequired = observedHead !== previousHead;
+        if (recoveryRequired) committedHead = observedHead;
+      }
+      catch { recoveryRequired = true; }
+    }
+    if (recoveryRequired) throw Object.assign(new Error(`${committedHead
+      ? msgf('本地提交 {0} 已创建，但暂存区同步失败，请检查仓库状态，不要重复提交。', committedHead)
+      : '提交可能已经完成，但无法确认最终状态。请先检查提交历史，不要重复提交。'}\n${(error as Error).message}\n恢复索引保留在：${transaction?.directory}`), { commitHash: committedHead || undefined });
     throw error;
   } finally {
     if (!lockClosed) await lock.close();
     if (!installed) await fs.unlink(lockPath).catch(() => {});
-    if (directory && path.dirname(directory) === path.dirname(index) && path.basename(directory).startsWith('gitvista-commit-')) await fs.rm(directory, { recursive: true, force: true });
+    // A hook or timeout may have advanced HEAD even if Git returned an error.
+    // Never discard the original index after an uncertain commit outcome.
+    if (transaction) await finishGitTransaction(transaction, recoveryRequired);
   }
 }
 
@@ -1085,6 +1168,8 @@ async function performAction(repo: string, request: GitAction): Promise<ActionRe
 
 export async function openRepository(directory: string): Promise<RepoEntry> {
   const repo = await rootOf(directory);
+  const index = (await output(repo, ['rev-parse', '--path-format=absolute', '--git-path', 'index'])).trim();
+  await reclaimGitTransactions(path.dirname(path.resolve(index)));
   return { path: repo, name: path.basename(repo), lastOpened: new Date().toISOString() };
 }
 
@@ -1148,15 +1233,14 @@ async function pushPreview(repo: string, requestedRemote?: string): Promise<Push
   const remoteRef = await run(repo, ['rev-parse', '--verify', '--quiet', '--end-of-options', 'refs/remotes/' + remote + '/' + target], { allowCodes: [1,128] });
   const base = remoteRef.code === 0 ? remoteRef.stdout.trim() : (await output(repo, ['hash-object', '-t', 'tree', '--stdin'], { input: '' })).trim();
   const revisions = remoteRef.code === 0 ? [base + '..' + head] : [head];
-  const [log, names, count, indexTree] = await Promise.all([
+  const [log, names, count, staged] = await Promise.all([
     output(repo, ['log', '--max-count=500', '--topo-order', '--format=' + COMMIT_FORMAT, ...revisions, '--']),
     output(repo, ['diff', '--name-status', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', base, head, '--']),
     output(repo, ['rev-list', '--count', ...revisions, '--']),
-    snapshotIndexTree(repo),
+    withIndexSnapshot(repo, async (indexTree, env) => ({ indexTree, changes: parseNameChanges(await output(repo, ['diff', '--name-status', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', head, indexTree, '--'], { env })) })),
   ]);
-  const stagedChanges = parseNameChanges(await output(repo, ['diff', '--name-status', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', head, indexTree.trim(), '--']));
-  const stagedFiles = stagedChanges.map(file => ({ path: file.path, oldPath: file.oldPath, index: file.status[0], worktree: ' ', staged: true, unstaged: false, conflict: false }));
-  return { branch, remote, target, head, base, commits: parseCommits(log), files: parseNameChanges(names), total: Number(count.trim()), indexTree: indexTree.trim(), stagedFiles };
+  const stagedFiles = staged.changes.map(file => ({ path: file.path, oldPath: file.oldPath, index: file.status[0], worktree: ' ', staged: true, unstaged: false, conflict: false }));
+  return { branch, remote, target, head, base, commits: parseCommits(log), files: parseNameChanges(names), total: Number(count.trim()), indexTree: staged.indexTree, stagedFiles };
 }
 
 export async function repositoryHasCommits(directory: string): Promise<boolean> { return hasHead(await rootOf(directory)); }

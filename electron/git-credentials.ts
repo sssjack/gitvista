@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { RepositoryCredentials } from '../shared/types';
+import { createGitTransaction, finishGitTransaction } from './git-transactions';
 
 export interface ScopedCredential extends RepositoryCredentials { url: string }
 const session = new Map<string, ScopedCredential>();
@@ -19,7 +20,11 @@ export function validateCredentials(value: unknown): RepositoryCredentials {
 export function rememberCredentials(url: string, value: RepositoryCredentials | null): void {
   const key = credentialUrl(url);
   if (value === null) session.delete(key);
-  else session.set(key, { url: key, ...validateCredentials(value) });
+  else {
+    session.delete(key);
+    session.set(key, { url: key, ...validateCredentials(value) });
+    if (session.size > 30) session.delete(session.keys().next().value!);
+  }
 }
 export function clearCredentials(): void { session.clear(); }
 
@@ -37,7 +42,8 @@ const shellQuote = (value: string) => "'" + value.replace(/\\/g, '/').replace(/'
 export async function withCredentials<T>(provided: ScopedCredential[] | undefined, work: (args: string[], env: NodeJS.ProcessEnv, redact: (text: string) => string) => Promise<T>): Promise<T> {
   const entries = [...new Map([...session.values(), ...(provided || [])].map(entry => [entry.url, entry])).values()];
   if (!entries.length) return work([], {}, value => value);
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'gitvista-credentials-'));
+  const transaction = await createGitTransaction(os.tmpdir(), 'credentials');
+  const directory = transaction.directory;
   const helper = path.join(directory, 'helper.cjs');
   const secrets = entries.flatMap(entry => [entry.secret, encodeURIComponent(entry.secret), Buffer.from(`${entry.username}:${entry.secret}`).toString('base64')]);
   const redact = (text: string) => secrets.reduce((result, secret) => result.split(secret).join('[redacted]'), text);
@@ -48,7 +54,6 @@ export async function withCredentials<T>(provided: ScopedCredential[] | undefine
     args.push('-c', 'credential.useHttpPath=true', '-c', 'http.followRedirects=false');
     return await work(args, { ELECTRON_RUN_AS_NODE: '1', GITVISTA_CREDENTIALS: JSON.stringify(entries) }, redact);
   } finally {
-    const parent = path.resolve(os.tmpdir());
-    if (path.dirname(path.resolve(directory)) === parent && path.basename(directory).startsWith('gitvista-credentials-')) await fs.rm(directory, { recursive: true, force: true });
+    await finishGitTransaction(transaction);
   }
 }

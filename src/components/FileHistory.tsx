@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { History, Loader2, RefreshCw, X } from 'lucide-react';
@@ -6,10 +6,12 @@ import type { AppPreferences, DiffResult, GitFileHistoryCommit } from '../../sha
 import { useI18n } from '../lib/i18n';
 import DiffViewer from './DiffViewer';
 import './file-history.css';
+import './resource-pager.css';
+import { historyPageWithinBudget, RESOURCE_BUDGET } from '../lib/resource-budget';
 
 export type FileHistoryTarget = { repo: string; path: string; oldPath?: string; ref?: string };
 type MenuTarget = { file: FileHistoryTarget; x: number; y: number; opener: HTMLElement };
-const PAGE_SIZE = 100;
+const PAGE_SIZE = RESOURCE_BUDGET.fileHistoryPage;
 
 export function useFileHistory(scope: string, preferences: AppPreferences) {
   const [menu, setMenu] = useState<MenuTarget>();
@@ -75,26 +77,29 @@ function FileHistoryDialog({ target, preferences, returnFocus, onClose }: { targ
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [hasMore, setHasMore] = useState(false);
   const [diff, setDiff] = useState<DiffResult | null>(null), [diffLoading, setDiffLoading] = useState(false), [diffError, setDiffError] = useState('');
   const [retry, setRetry] = useState(0), [split, setSplit] = useState(preferences.diffView === 'split');
+  const [pageStart, setPageStart] = useState(0);
+  const queryId = useId();
+  const list = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLElement>(null), closeButton = useRef<HTMLButtonElement>(null), requestId = useRef(0);
   const closeRef = useRef(onClose); closeRef.current = onClose;
   const load = async (skip = 0) => {
     const id = ++requestId.current; setLoading(true); setError('');
     try {
-      const records = await window.gitvista.query<GitFileHistoryCommit[]>(target.repo, { type: 'fileHistory', path: target.path, oldPath: target.oldPath, ref: target.ref, limit: PAGE_SIZE + 1, log: { skip } });
+      const records = await window.gitvista.query<GitFileHistoryCommit[]>(target.repo, { type: 'fileHistory', path: target.path, oldPath: target.oldPath, ref: target.ref, limit: PAGE_SIZE + 1, log: { skip } }, `${queryId}:history`);
       if (id !== requestId.current) return;
-      const page = records.slice(0, PAGE_SIZE);
-      setCommits(current => skip ? [...current, ...page] : page); setHasMore(records.length > PAGE_SIZE);
-      if (!skip) setSelected(page[0]);
+      const page = historyPageWithinBudget(records, PAGE_SIZE);
+      setCommits(page); setPageStart(skip); setHasMore(records.length > page.length);
+      setSelected(page[0]); if (list.current) list.current.scrollTop = 0;
     } catch (cause) { if (id === requestId.current) setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { if (id === requestId.current) setLoading(false); }
   };
-  useEffect(() => { void load(); return () => { ++requestId.current; }; }, []);
+  useEffect(() => { void load(); return () => { ++requestId.current; window.gitvista.cancelQuery(`${queryId}:history`); window.gitvista.cancelQuery(`${queryId}:diff`); }; }, []);
   useEffect(() => {
     let alive = true; setDiff(null); setDiffError(''); setDiffLoading(!!selected);
-    if (selected) void window.gitvista.query<DiffResult>(target.repo, { type: 'diff', ref: selected.hash, path: selected.path, oldPath: selected.oldPath }).then(value => {
+    if (selected) void window.gitvista.query<DiffResult>(target.repo, { type: 'diff', ref: selected.hash, path: selected.path, oldPath: selected.oldPath }, `${queryId}:diff`).then(value => {
       if (alive) setDiff(value);
     }).catch(cause => { if (alive) setDiffError(cause instanceof Error ? cause.message : String(cause)); }).finally(() => { if (alive) setDiffLoading(false); });
-    return () => { alive = false; };
+    return () => { alive = false; window.gitvista.cancelQuery(`${queryId}:diff`); };
   }, [selected, retry, target.repo]);
   useEffect(() => {
     closeButton.current?.focus();
@@ -115,14 +120,14 @@ function FileHistoryDialog({ target, preferences, returnFocus, onClose }: { targ
       <header><History size={17} /><strong>{t('文件历史')}</strong><span title={target.path}>{target.path}</span><button ref={closeButton} className="icon-button" aria-label={t('关闭文件历史')} onClick={onClose}><X size={18} /></button></header>
       <div className="file-history-context"><span title={target.repo}>{target.repo}</span><span title={target.ref}>{target.ref ? t('截至提交 {0}', target.ref.slice(0, 8)) : t('当前分支 · HEAD')}</span></div>
       <div className="file-history-body">
-        <div className="file-history-list" aria-label={t('文件提交记录')}>
+        <div className="file-history-list" ref={list} aria-label={t('文件提交记录')}>
+          {(pageStart > 0 || hasMore) && <nav className="resource-pager history-pages" aria-label={t('历史分页')}><span>{pageStart + 1}–{pageStart + commits.length}</span><button disabled={loading || pageStart === 0} onClick={() => void load(Math.max(0, pageStart - PAGE_SIZE))}>{t('上一页')}</button><button disabled={loading || !hasMore} onClick={() => void load(pageStart + commits.length)}>{t('下一页')}</button></nav>}
           {commits.map(commit => <button key={commit.hash} className={`file-history-commit ${selected?.hash === commit.hash ? 'active' : ''}`} aria-pressed={selected?.hash === commit.hash} title={commit.subject} onClick={() => setSelected(commit)}>
             <strong>{commit.subject}</strong><span><code>{commit.short}</code><span>{commit.author}</span><time dateTime={commit.date}>{new Date(commit.date).toLocaleDateString(locale)}</time></span>
           </button>)}
           {loading && <div className="inline-loading" role="status"><Loader2 size={16} className="spin" />{t('查询仓库历史…')}</div>}
-          {error && <div className="file-history-error" role="alert"><p>{error}</p><button onClick={() => void load(commits.length)}>{t('重试')}</button></div>}
+          {error && <div className="file-history-error" role="alert"><p>{error}</p><button onClick={() => void load(pageStart)}>{t('重试')}</button></div>}
           {!loading && !error && !commits.length && <div className="empty-state"><History size={26} /><strong>{t('没有文件历史')}</strong><p>{t('此文件在所选版本之前没有提交记录。')}</p></div>}
-          {!loading && !error && hasMore && <button className="load-more" onClick={() => void load(commits.length)}>{t('加载更多提交')}</button>}
         </div>
         <div className="file-history-preview">
           {selected ? <><div className="file-history-diff-heading"><code>{selected.short}</code><span title={selected.path}>{selected.oldPath ? `${selected.oldPath} → ${selected.path}` : selected.path}</span><div className="segmented"><button className={!split ? 'active' : ''} onClick={() => setSplit(false)}>{t('统一')}</button><button className={split ? 'active' : ''} onClick={() => setSplit(true)}>{t('并排')}</button></div><button className="icon-button" aria-label={t('重新读取差异')} disabled={diffLoading} onClick={() => setRetry(value => value + 1)}><RefreshCw size={14} /></button></div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Files, FolderGit2, FolderOpen, GitBranch, GitCommitHorizontal, History, Loader2, PanelLeftClose, RefreshCw, X } from 'lucide-react';
 import type { AppPreferences, CommitDetail, DiffResult, RepoEntry, WorkspaceRepository } from '../../shared/types';
 import { createWorkspaceLog, relativeRepository, splitWorkspaceRef, workspaceFilePath, workspaceRef, workspaceSnapshot } from '../lib/workspace-log';
@@ -26,6 +26,7 @@ export default function WorkspaceWorkbench({ root, repositories, selected, worki
   onOpen: (entry: RepoEntry, hash?: string) => Promise<void>; onCredentials: (repo: WorkspaceRepository) => void;
 }) {
   const { t } = useI18n(); const api = window.gitvista;
+  const queryId = useId();
   const fileHistory = useFileHistory(root, layout.settings);
   const [scope, setScope] = useState(''), [commitKey, setCommitKey] = useState(''), [detail, setDetail] = useState<CommitDetail>();
   const [file, setFile] = useState<FileSelection>(), [allFiles, setAllFiles] = useState(true), [codeMode, setCodeMode] = useState(true);
@@ -43,8 +44,9 @@ export default function WorkspaceWorkbench({ root, repositories, selected, worki
   useEffect(() => { if (scope && !repositories.some(item => item.entry.path === scope)) setScope(''); }, [repositories, scope]);
   const relative = (repo: string) => relativeRepository(root, repo);
   const aggregate = useMemo(() => workspaceSnapshot(root, repositories), [root, repositories]);
-  const query = useMemo(() => createWorkspaceLog(root, repositories, scope, (repo, request) => api.query(repo, request)), [root, repositories, scope, api]);
-  const source: LogSource = useMemo(() => ({ query,
+  const query = useMemo(() => createWorkspaceLog(root, repositories, scope, (repo, request, key) => api.query(repo, request, key), key => api.cancelQuery(key)), [root, repositories, scope, api]);
+  useEffect(() => () => query.dispose(), [query]);
+  const source: LogSource = useMemo(() => ({ query, cancel: query.cancel,
     commitLabel: key => relativeRepository(root, splitWorkspaceRef(key)?.repo || root),
     refLabel: key => { const value = splitWorkspaceRef(key); return value ? `${relativeRepository(root, value.repo)} · ${value.ref}` : key; },
     controls: <SelectMenu label={t('日志仓库筛选')} searchable value={scope} onChange={setScope} options={[{ value: '', label: t('全部仓库') }, ...repositories.map(item => ({ value: item.entry.path, label: relativeRepository(root, item.entry.path) }))]} />,
@@ -56,23 +58,23 @@ export default function WorkspaceWorkbench({ root, repositories, selected, worki
     const target = splitWorkspaceRef(key); if (!target) return;
     const id = ++detailRequest.current, chosenFile = ++fileRequest.current; setCommitKey(key); setDetail(undefined); setDetailError(''); setFile(undefined);
     try {
-      const value = await api.query<CommitDetail>(target.repo, { type: 'commit', ref: target.ref });
+      const value = await api.query<CommitDetail>(target.repo, { type: 'commit', ref: target.ref }, `${queryId}:detail`);
       if (id !== detailRequest.current) return;
       setDetail(value);
       const first = value.files[0];
       if (first && chosenFile === fileRequest.current) { setFile({ path: workspaceFilePath(root, target.repo, first.path), repo: target.repo, relative: first.path, ref: target.ref, deleted: first.status.startsWith('D') }); setCodeMode(false); }
     } catch (cause) { if (id === detailRequest.current) setDetailError(String(cause)); }
   };
-  useEffect(() => () => { ++detailRequest.current; }, []);
+  useEffect(() => () => { ++detailRequest.current; api.cancelQuery(`${queryId}:detail`); api.cancelQuery(`${queryId}:file`); }, []);
   useEffect(() => {
     let alive = true; setCode(null); setDiff(null); setError('');
     if (!file) { setReading(false); return; }
     setReading(true);
     const request = codeMode
-      ? (file.ref || file.staged) && file.repo ? api.query<string>(file.repo, { type: 'fileContent', path: file.relative, ref: file.deleted ? detail?.commit.parents[0] : file.ref, staged: file.staged }) : api.workspaceFile(root, file.path)
-      : file.repo ? api.query<DiffResult>(file.repo, { type: 'diff', ref: file.ref, path: file.relative, staged: file.staged }) : Promise.resolve({ text: '', binary: false, truncated: false });
+      ? (file.ref || file.staged) && file.repo ? api.query<string>(file.repo, { type: 'fileContent', path: file.relative, ref: file.deleted ? detail?.commit.parents[0] : file.ref, staged: file.staged }, `${queryId}:file`) : api.workspaceFile(root, file.path)
+      : file.repo ? api.query<DiffResult>(file.repo, { type: 'diff', ref: file.ref, path: file.relative, staged: file.staged }, `${queryId}:file`) : Promise.resolve({ text: '', binary: false, truncated: false });
     request.then(value => { if (alive) { if (typeof value === 'string') setCode(value); else setDiff(value); } }).catch(cause => { if (alive) setError(String(cause)); }).finally(() => { if (alive) setReading(false); });
-    return () => { alive = false; };
+    return () => { alive = false; api.cancelQuery(`${queryId}:file`); };
   }, [root, file, codeMode, revision, api, detail]);
   const statuses = useMemo(() => new Map(repositories.flatMap(item => (item.snapshot?.files || []).map(value => [workspaceFilePath(root, item.entry.path, value.path), value.conflict ? '!' : (value.worktree.trim() || value.index.trim())] as const))), [root, repositories]);
   const owner = (path: string) => repositories.filter(item => { const prefix = relative(item.entry.path); return prefix === '.' || path.startsWith(prefix + '/'); }).sort((a, b) => b.entry.path.length - a.entry.path.length)[0];

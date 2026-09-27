@@ -1,4 +1,5 @@
 import SelectMenu from './SelectMenu';
+import ResourceSettings from './ResourceSettings';
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronRight, Code2, FolderOpen, GitBranch, Languages, Loader2, Monitor, Package, Palette, Save, Settings2, ShieldCheck, Terminal, UserRound, X } from 'lucide-react';
 import { DEFAULT_PREFERENCES } from '../../shared/types';
@@ -94,6 +95,7 @@ export default function SettingsDialog({ settings, repo, onSaved, onClose }: { s
               <p className="settings-help">{t('隐藏到系统托盘后，软件会继续运行，可点击屏幕右下角的托盘图标打开。')}</p>
               <p className="settings-help">{t('选择“每次询问”可恢复关闭时的提示。')}</p>
             </section>
+            <ResourceSettings />
           </> : tab === 'git' ? <>
             <div className="settings-page-title"><h2>{t('Git 与提交')}</h2><p>{t('连接本机 Git，设置提交身份与默认拉取方式。')}</p></div>
             <section className="settings-section"><h3><Package size={15} />{t('内置 Git')}</h3><div className="settings-bundled"><ShieldCheck size={15} /><span>{t('此版本内置 Git，无需单独安装。填写 git 会优先使用内置版本；也可以在下方指定本机已安装的 Git。')}</span></div></section>

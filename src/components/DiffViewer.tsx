@@ -9,11 +9,17 @@ import ResizeHandle from './ResizeHandle';
 import SyntaxTokens from './SyntaxTokens';
 import './diff-viewer.css';
 import { useI18n } from '../lib/i18n';
+import { indexTextPages, readTextPage } from '../lib/text-pages';
+import ResourcePager from './ResourcePager';
 
 function DiffViewer({ diff, split, wordWrap = false, fontSize = 12, path }: { diff: DiffResult | null; split: boolean; wordWrap?: boolean; fontSize?: number; path?: string }) {
   const { t } = useI18n();
   const summaryText = (text: string) => { const colon = text.indexOf('：'); return colon < 0 ? t(text) : `${t(text.slice(0, colon))}: ${text.slice(colon + 1)}`; };
-  const lines = useMemo(() => diff?.text ? parseDiffLines(diff.text) : [], [diff?.text]);
+  const [pageNumber, setPageNumber] = useState(0);
+  const pages = useMemo(() => diff?.text ? indexTextPages(diff.text, true) : [], [diff?.text]);
+  const pageIndex = Math.min(pageNumber, Math.max(0, pages.length - 1));
+  const page = pages[pageIndex];
+  const lines = useMemo(() => diff?.text && page ? parseDiffLines(readTextPage(diff.text, page, true)) : [], [diff?.text, page]);
   const files = useMemo(() => presentDiff(lines, path), [lines, path]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const file = files.find(item => item.key === selectedFile) || files[0];
@@ -39,8 +45,9 @@ function DiffViewer({ diff, split, wordWrap = false, fontSize = 12, path }: { di
     align(); const observer = new ResizeObserver(align); if (root.current) observer.observe(root.current);
     return () => { cancelAnimationFrame(frame); observer.disconnect(); };
   }, [pairs, split, wordWrap, fontSize, wordWrap ? ratio : 0]);
-  useEffect(() => { setSelectedFile(null); }, [diff?.text]);
-  useEffect(() => { if (left.current) { left.current.scrollTop = 0; left.current.scrollLeft = 0; } if (right.current) { right.current.scrollTop = 0; right.current.scrollLeft = 0; } }, [diff?.text, file?.key]);
+  useEffect(() => { setPageNumber(0); }, [diff?.text]);
+  useEffect(() => { setSelectedFile(null); }, [diff?.text, pageIndex]);
+  useEffect(() => { if (left.current) { left.current.scrollTop = 0; left.current.scrollLeft = 0; } if (right.current) { right.current.scrollTop = 0; right.current.scrollLeft = 0; } }, [diff?.text, file?.key, pageIndex]);
   const empty = !diff ? [t('选择文件以查看差异'), <FileDiff size={30} />] : !diff.text.trim() ? [t(diff.binary ? '二进制内容发生变化' : '没有文本差异'), diff.binary ? <Files size={30} /> : <CheckCheck size={30} />] : null;
   if (empty) return <div className="empty-state"><div className="empty-icon">{empty[1]}</div><strong>{empty[0]}</strong></div>;
   const warning = diff?.truncated && <div className="inline-warning">{t("差异内容较大，已截断显示。请使用外部编辑器检查完整文件。")}</div>;
@@ -63,11 +70,12 @@ function DiffViewer({ diff, split, wordWrap = false, fontSize = 12, path }: { di
     })}</div></div>
   </section>;
   return <div className={`diff-viewer ${wordWrap ? 'wrap-lines' : ''}`} ref={root}>
+    <ResourcePager page={pageIndex} pages={pages.length} onPage={setPageNumber} label={t('大差异分页 · 颜色统计仅限本页')} />
     {files.length > 1 && <div className="diff-file-tabs" role="tablist" aria-label={t("差异文件")}>{files.map(item => <button role="tab" aria-selected={item.key === file?.key} className={item.key === file?.key ? 'active' : ''} key={item.key} title={item.path} onClick={() => setSelectedFile(item.key)}><FileDiff size={12} />{item.path}</button>)}</div>}
     {!!pairs?.length && <div className="diff-change-legend" aria-label={t("差异颜色说明")}><span className="add"><i />{t('新增')} {file.counts.add}</span><span className="modify"><i />{t('修改')} {file.counts.modify}</span><span className="remove"><i />{t('删除')} {file.counts.remove}</span>{file.summary.length > 0 && <span className="diff-file-summary" title={file.summary.map(summaryText).join('; ')}>{file.summary.map(summaryText).join('; ')}</span>}</div>}
     {!pairs?.length ? <div className="empty-state diff-information"><div className="empty-icon"><Files size={30} /></div><strong>{file?.binary || files.length === 1 && diff?.binary ? t('二进制内容发生变化') : t('仅文件信息发生变化')}</strong>{(file?.summary || [t('未包含可显示的文本差异。')]).map((text, index) => <p key={index}>{summaryText(text)}</p>)}</div> : split ? <div className="diff-split-layout" style={{ gridTemplateColumns: `minmax(0,${ratio}fr) 6px minmax(0,${1 - ratio}fr)` }}>
       {side('left')}<ResizeHandle direction="vertical" label={t("调整左右差异宽度")} onResize={delta => setRatio(current => clamp(current + delta / Math.max(1, root.current?.clientWidth || 1), .2, .8))} onReset={() => setRatio(.5)} />{side('right')}
-    </div> : <div className="diff-scroll unified" tabIndex={0}><div className="diff-code">{file.unified.map((row, index) => row.kind === 'gap' ? <div className="diff-gap" role="separator" aria-label={t("中间未变化的代码已省略")} title={t("中间未变化的代码已省略")} key={index}><span>···</span></div> : <div className={`diff-line ${row.kind}`} data-change={row.kind} key={index}><span className="line-number">{row.line.old}</span><span className="line-number">{row.line.next}</span><code>{code(row.line, row.line.kind === 'remove' ? 'left' : 'right')}</code></div>)}</div></div>}
+    </div> : <div key={pageIndex} className="diff-scroll unified" tabIndex={0}><div className="diff-code">{file.unified.map((row, index) => row.kind === 'gap' ? <div className="diff-gap" role="separator" aria-label={t("中间未变化的代码已省略")} title={t("中间未变化的代码已省略")} key={index}><span>···</span></div> : <div className={`diff-line ${row.kind}`} data-change={row.kind} key={index}><span className="line-number">{row.line.old}</span><span className="line-number">{row.line.next}</span><code>{code(row.line, row.line.kind === 'remove' ? 'left' : 'right')}</code></div>)}</div></div>}
     {warning}
     {syntax.limited && <div className="syntax-limit-note">{t("较长差异保留原文，部分语法颜色已简化。")}</div>}
   </div>;

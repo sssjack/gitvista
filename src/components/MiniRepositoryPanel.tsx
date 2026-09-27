@@ -1,11 +1,32 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowUp, Check, FileDiff, GitCommitHorizontal, Loader2, Maximize2, RefreshCw, X } from 'lucide-react';
 import type { DesktopState, DiffResult, GitCommit, GitCommitFile, GitWorkingState, MiniAction, MiniQuery, PushPreview, RepoEntry } from '../../shared/types';
 import { useI18n } from '../lib/i18n';
+import { indexTextPages, readTextPage } from '../lib/text-pages';
+import ResourcePager from './ResourcePager';
 
 const api = window.gitvistaMini;
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 type DiffState = { query: MiniQuery; result?: DiffResult; error?: string };
+
+function MiniDiffPreview({ text }: { text: string }) {
+  const { t } = useI18n();
+  const pages = useMemo(() => indexTextPages(text), [text]);
+  const [pageIndex, setPageIndex] = useState(0);
+  const code = useRef<HTMLPreElement>(null);
+  useEffect(() => { setPageIndex(0); }, [text]);
+  const current = Math.min(pageIndex, pages.length - 1);
+  const page = pages[current];
+  const lines = useMemo(() => readTextPage(text, page).split('\n'), [text, page]);
+  const changePage = (next: number) => {
+    setPageIndex(next);
+    code.current?.closest('.mini-panel-body')?.scrollTo({ top: 0 });
+  };
+  return <>
+    <ResourcePager page={current} pages={pages.length} onPage={changePage} label={`${t('补丁行')} ${page.firstLine}–${page.firstLine + page.lines - 1}`} />
+    <pre ref={code} className="mini-diff-code">{text ? lines.map((line, index) => <span key={page.firstLine + index} data-patch-line={page.firstLine + index} title={`${t('补丁行')} ${page.firstLine + index}`} className={line.startsWith('+') ? 'added' : line.startsWith('-') ? 'removed' : ''}>{line || ' '}</span>) : t('没有差异')}</pre>
+  </>;
+}
 
 function FileButton({ file, onClick, disabled }: { file: GitCommitFile; onClick: () => void; disabled: boolean }) {
   const { t } = useI18n();
@@ -63,8 +84,8 @@ export default function MiniRepositoryPanel({ state }: { state: DesktopState }) 
     ++diffGeneration.current; setDiff(null); setLoading(true); setError(''); setStale(true); setPreview(null);
     try {
       const [status, plan] = await Promise.all([
-        api.query<GitWorkingState>(repo, { type: 'status' }),
-        tab === 'push' ? api.query<PushPreview>(repo, { type: 'pushPreview' }) : Promise.resolve(null),
+        api.query<GitWorkingState>(repo, { type: 'status' }, 'mini:status'),
+        tab === 'push' ? api.query<PushPreview>(repo, { type: 'pushPreview' }, 'mini:preview') : Promise.resolve(null),
       ]);
       if (id !== generation.current) return;
       setWorking(status); setPreview(plan); setStale(false);
@@ -72,9 +93,9 @@ export default function MiniRepositoryPanel({ state }: { state: DesktopState }) 
     } catch (cause) { if (id === generation.current) setError(errorText(cause)); }
     finally { if (id === generation.current) setLoading(false); }
   }, [repo, tab]);
-  useEffect(() => { void load(); return () => { ++generation.current; ++diffGeneration.current; }; }, [load]);
+  useEffect(() => { void load(); return () => { ++generation.current; ++diffGeneration.current; for (const key of ['mini:status', 'mini:preview', 'mini:diff']) api.cancelQuery(key); }; }, [load]);
 
-  const closeDiff = useCallback(() => { ++diffGeneration.current; setDiff(null); requestAnimationFrame(() => diffOpener.current?.focus()); }, []);
+  const closeDiff = useCallback(() => { ++diffGeneration.current; api.cancelQuery('mini:diff'); setDiff(null); requestAnimationFrame(() => diffOpener.current?.focus()); }, []);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || busy) return;
@@ -89,7 +110,7 @@ export default function MiniRepositoryPanel({ state }: { state: DesktopState }) 
     if (!diff) diffOpener.current = document.activeElement as HTMLElement;
     const id = ++diffGeneration.current; setDiff({ query });
     try {
-      const result = await api.query<DiffResult>(repo, query);
+      const result = await api.query<DiffResult>(repo, query, 'mini:diff');
       if (id === diffGeneration.current) setDiff({ query, result });
     } catch (cause) { if (id === diffGeneration.current) setDiff({ query, error: errorText(cause) }); }
   };
@@ -143,7 +164,7 @@ export default function MiniRepositoryPanel({ state }: { state: DesktopState }) 
         <strong className="mini-diff-path">{diff.query.path}</strong>
         {diff.error ? <div role="alert" className="mini-panel-error">{diff.error}</div> : !diff.result ? <p className="mini-empty">{t('读取差异…')}</p> : diff.result.binary ? <p className="mini-empty">{t('二进制文件，无法显示文本差异')}</p> : <>
           {diff.result.truncated && <p className="mini-panel-hint">{t('差异过大，仅显示部分内容')}</p>}
-          <pre className="mini-diff-code">{diff.result.text ? diff.result.text.split('\n').map((line, index) => <span key={index} className={line.startsWith('+') ? 'added' : line.startsWith('-') ? 'removed' : ''}>{line || ' '}</span>) : t('没有差异')}</pre>
+          <MiniDiffPreview text={diff.result.text} />
         </>}
       </div> : !repo ? <p className="mini-empty">{t('请先打开仓库')}</p> : tab === 'changes' ? <>
         <div className="mini-section-heading"><strong>{t('待提交文件')} <span>{changes.length}</span></strong><button disabled={blocked || !selectable.length} onClick={() => setSelected(selected.size === selectable.length ? new Set() : new Set(selectable.map(file => file.path)))}>{t(selected.size === selectable.length && selectable.length ? '取消全选' : '全选')}</button></div>

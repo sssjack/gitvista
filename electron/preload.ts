@@ -1,9 +1,18 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { GitVistaApi } from '../shared/types';
 const api: GitVistaApi = {
+  resourceUsage: () => ipcRenderer.invoke('gv:resources'),
+  clearRuntimeCache: () => ipcRenderer.invoke('gv:resources:clear'),
   settings: () => ipcRenderer.invoke('gv:settings'),
   setTheme: theme => ipcRenderer.invoke('gv:theme', theme),
   updatePreferences: preferences => ipcRenderer.invoke('gv:preferences', preferences),
+  windowClosePrompt: () => ipcRenderer.invoke('gv:window:close-prompt'),
+  respondToWindowClose: response => ipcRenderer.invoke('gv:window:close-response', response),
+  onWindowClosePrompt: listener => {
+    const handler = (_event: Electron.IpcRendererEvent, prompt: Parameters<typeof listener>[0]) => listener(prompt);
+    ipcRenderer.on('gv:window:close-prompt', handler);
+    return () => ipcRenderer.removeListener('gv:window:close-prompt', handler);
+  },
   onPreferencesChanged: listener => {
     const handler = (_event: Electron.IpcRendererEvent, preferences: Parameters<typeof listener>[0]) => listener(preferences);
     ipcRenderer.on('gv:preferences:changed', handler);
@@ -30,7 +39,8 @@ const api: GitVistaApi = {
   onDesktopState: listener => { const handler = (_event: Electron.IpcRendererEvent, state: Parameters<typeof listener>[0]) => listener(state); ipcRenderer.on('gv:desktop:state', handler); return () => ipcRenderer.removeListener('gv:desktop:state', handler); },
   onRepositoryRefresh: listener => { const handler = () => listener(); ipcRenderer.on('gv:repository:refresh', handler); return () => ipcRenderer.removeListener('gv:repository:refresh', handler); },
   initRepository: path => ipcRenderer.invoke('gv:init', path),
-  query: (repo, query) => ipcRenderer.invoke('gv:query', repo, query),
+  query: (repo, query, requestKey) => ipcRenderer.invoke('gv:query', repo, query, requestKey),
+  cancelQuery: requestKey => ipcRenderer.send('gv:query:cancel', requestKey),
   action: (repo, action) => ipcRenderer.invoke('gv:action', repo, action),
   exportPatch: (repo, ref) => ipcRenderer.invoke('gv:export', repo, ref),
   revealPath: (repo, relative) => ipcRenderer.invoke('gv:reveal', repo, relative),

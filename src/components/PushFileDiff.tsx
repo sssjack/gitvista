@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { FileDiff, Loader2, RefreshCw, X } from 'lucide-react';
 import type { AppPreferences, DiffResult } from '../../shared/types';
 import { useI18n } from '../lib/i18n';
@@ -8,23 +8,24 @@ import './push-review.css';
 export type PushDiffTarget = { repo: string; path: string; oldPath?: string; source: 'commit' | 'staged' | 'working'; ref?: string; subject?: string; indexTree?: string; base?: string };
 export type PushDiffState = PushDiffTarget & { diff: DiffResult | null; loading: boolean; error: string; open: boolean };
 export function usePushFileDiff() {
+  const requestKey = `push-diff:${useId()}`;
   const [state, setState] = useState<PushDiffState | null>(null);
   const request = useRef(0), mounted = useRef(true);
   const opener = useRef<HTMLElement | null>(null);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; ++request.current; }; }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; ++request.current; window.gitvista.cancelQuery(requestKey); }; }, [requestKey]);
   const select = useCallback((file: PushDiffTarget) => {
     if (!document.querySelector('.push-file-diff-dialog')) opener.current = document.activeElement as HTMLElement | null;
     const id = ++request.current;
     setState({ ...file, diff: null, loading: true, error: '', open: true });
-    void window.gitvista.query<DiffResult>(file.repo, { type: 'diff', path: file.path, oldPath: file.oldPath, ref: file.source === 'commit' ? file.ref : undefined, staged: file.source === 'staged', workingTree: file.source === 'working', indexTree: file.indexTree, base: file.base }).then(diff => {
+    void window.gitvista.query<DiffResult>(file.repo, { type: 'diff', path: file.path, oldPath: file.oldPath, ref: file.source === 'commit' ? file.ref : undefined, staged: file.source === 'staged', workingTree: file.source === 'working', indexTree: file.indexTree, base: file.base }, requestKey).then(diff => {
       if (mounted.current && id === request.current) setState(current => current && { ...current, diff, loading: false });
     }).catch(cause => {
       if (mounted.current && id === request.current) setState(current => current && { ...current, error: cause instanceof Error ? cause.message : String(cause), loading: false });
     });
-  }, []);
-  const clear = useCallback(() => { ++request.current; setState(null); }, []);
-  const close = useCallback(() => setState(current => current && { ...current, open: false }), []);
-  const reopen = useCallback(() => { opener.current = document.activeElement as HTMLElement | null; setState(current => current && { ...current, open: true }); }, []);
+  }, [requestKey]);
+  const clear = useCallback(() => { ++request.current; window.gitvista.cancelQuery(requestKey); setState(null); }, [requestKey]);
+  const close = useCallback(() => { ++request.current; window.gitvista.cancelQuery(requestKey); setState(current => current && { ...current, loading: false, open: false }); }, [requestKey]);
+  const reopen = useCallback(() => { opener.current = document.activeElement as HTMLElement | null; if (state && !state.diff) select(state); else setState(current => current && { ...current, open: true }); }, [state, select]);
   return { state, select, clear, close, reopen, opener };
 }
 

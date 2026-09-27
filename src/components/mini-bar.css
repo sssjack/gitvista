@@ -81,6 +81,7 @@
 .mini-operation-output pre { max-height: 120px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mini-diff-heading { display: flex; justify-content: space-between; margin: 2px 0 8px; }
 .mini-diff-path { display: block; overflow-wrap: anywhere; font-size: calc(11px * var(--ui-font-scale, 1)); }
+.mini-diff > .resource-pager { position: sticky; top: -6px; z-index: 1; margin-top: 8px; padding: 5px 0; background: var(--panel); }
 .mini-diff-code { font: 11px/1.7 ui-monospace, Consolas, monospace; overflow: auto; padding: 8px 0; user-select: text; }
 .mini-diff-code span { display: block; min-width: 100%; width: max-content; }
 .mini-diff-code .added { color: var(--green); background: var(--green-bg); }
