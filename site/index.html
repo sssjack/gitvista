@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="dark light" />
+<title>GitVista — 看清每一次变更，再放心按下提交 | Windows Git 桌面工作台</title>
+<meta name="description" content="GitVista 是面向 Windows 的 Git 桌面工作台：内置 MinGit 免配置、多仓库统一工作区、推送前逐项预览、迷你横条快捷提交、12 套主题、中英双语。附带资源占用实测报告与完整使用说明。" />
+<meta name="keywords" content="GitVista,Git 客户端,Git GUI,Windows Git 工具,多仓库管理,MinGit,提交预览,Git 可视化" />
+<meta name="author" content="GitVista" />
+<link rel="canonical" href="https://sssjack.github.io/gitvista/" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="GitVista — 看清每一次变更，再放心按下提交" />
+<meta property="og:description" content="面向 Windows 的 Git 桌面工作台。内置 Git、多仓库工作区、先预览再推送、迷你快捷提交、12 套主题、中英双语。" />
+<meta property="og:url" content="https://sssjack.github.io/gitvista/" />
+<meta property="og:image" content="https://sssjack.github.io/gitvista/assets/img/workbench-084.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="assets/icon.png" />
+<link rel="stylesheet" href="assets/style.css" />
+<script>
+// 在首屏绘制前套用主题，避免刷新时闪一下另一种配色。
+// 默认深色；用户点过切换按钮后以 localStorage 为准。
+(function () {
+  try {
+    var saved = localStorage.getItem('gitvista-site-theme');
+    if (saved === 'light' || saved === 'dark') {
+      document.documentElement.setAttribute('data-theme', saved);
+    }
+  } catch (e) { /* 隐私模式下 localStorage 不可用，保持默认深色 */ }
+})();
+</script>
+</head>
+<body>
+
+<!-- ============================================================ 导航 -->
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top">
+      <img src="assets/icon.png" alt="GitVista 图标" />
+      GitVista <small>0.9.8</small>
+    </a>
+    <nav class="nav-links">
+      <a href="#why">优势</a>
+      <a href="#scenes">场景</a>
+      <a href="#features">功能</a>
+      <a href="#compare">对比</a>
+      <a href="#report">实测报告</a>
+      <a href="#guide">使用说明</a>
+    </nav>
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="切换明亮 / 深色主题" title="切换明亮 / 深色主题">
+      <svg class="ico-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.2" />
+        <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4 17 7M7 17l-1.6 1.6" />
+      </svg>
+      <svg class="ico-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20.5 14.2A8.6 8.6 0 0 1 9.8 3.5a8.6 8.6 0 1 0 10.7 10.7z" />
+      </svg>
+    </button>
+    <a class="nav-cta" href="#download">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/></svg>
+      下载
+    </a>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ============================================================ Hero -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+      <h1>看清每一次变更，<br />再<em>放心</em>按下提交。</h1>
+      <p class="hero-sub">
+        你可能也遇到过：改了几个项目，终端开了八个，最后不记得自己到底推了哪一个。
+        GitVista 是一个面向 Windows 的 Git 桌面工作台，专门解决这类「小事很多、切来切去」的日常。
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#download">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/></svg>
+          下载 Windows 版 <small>121 MiB</small>
+        </a>
+        <a class="btn btn-ghost" href="#compare">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+          与其他客户端对比
+        </a>
+      </div>
+      <p class="hero-note">Windows x64 · 内置 MinGit，装完即用 · 无需注册账号 · 中英文界面</p>
+
+      <div class="hero-stats">
+        <span class="chip"><i class="dot"></i><b>多仓库</b> 统一工作区</span>
+        <span class="chip"><i class="dot g"></i><b>先预览</b> 再推送</span>
+        <span class="chip"><i class="dot"></i><b>12</b> 套主题</span>
+        <span class="chip"><i class="dot y"></i><b>4</b> 档界面字号</span>
+        <span class="chip"><i class="dot g"></i><b>100%</b> 本地运行</span>
+      </div>
+    </div>
+
+    <figure class="shot hero-shot">
+      <img src="assets/img/workbench-084.png" alt="GitVista 工作台：左侧本地变更、右侧并排差异、下方提交历史" width="1560" height="1000" />
+      <figcaption>工作台：本地变更 · 并排差异 · 提交历史，都在同一屏。截图使用演示数据。</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================================================ 优势 -->
+<section class="section sec-soft" id="why">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">为什么用它</span>
+      <h2>不是「又一个 Git 客户端」，是把那些反复切窗口的琐事收进一个窗口</h2>
+      <p>下面六件事，是 GitVista 与大多数客户端真正拉开差距的地方。每一条都能在安装包里直接验证。</p>
+    </div>
+
+    <div class="grid grid-3">
+      <article class="card">
+        <div class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h3.6l1.7 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+        <h3>打开一个父文件夹，就是一整个工作区</h3>
+        <p>自动发现子仓库，统一看状态和历史，可批量拉取、预览后推送。谁成功、谁卡住，每个仓库各自给出结果，不靠回忆。</p>
+        <span class="tag">Workspace</span>
+      </article>
+
+      <article class="card">
+        <div class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></div>
+        <h3>这次到底提交什么，先看清楚</h3>
+        <p>工作区与暂存区分开展示，文件可勾选、差异可逐个查看。预览之后内容变了，会请你重新确认 —— 避免「看的是 A，交上去的是 B」。</p>
+        <span class="tag">Push Preview</span>
+      </article>
+
+      <article class="card">
+        <div class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.4 6.6h4a3 3 0 0 1 3 3v1M8.4 17.4h4a3 3 0 0 0 3-3v-1"/></svg></div>
+        <h3>查历史不必在几个窗口里来回跳</h3>
+        <p>提交图、文件树、改动内容、完整历史源码联动显示。想查某个文件怎么变成今天这样，直接沿着历史往回看。</p>
+        <span class="tag">Interactive Graph</span>
+      </article>
+
+      <article class="card">
+        <div class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1.6"/><path d="M6 12h12M6 16h12M6 20h8"/></svg></div>
+        <h3>主窗口大，桌面入口小</h3>
+        <p>迷你横条支持拉取、查看最近提交、快捷提交和推送预览；贴到屏幕边缘还能磁吸收起。它负责待命，不负责占据你的整张桌面。</p>
+        <span class="tag">Mini Bar</span>
+      </article>
+
+      <article class="card">
+        <div class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="4"/></svg></div>
+        <h3>不用先给 Git 配一套入场仪式</h3>
+        <p>Windows 包自带 MinGit 2.47.1，打开本地仓库就能用，不依赖系统 PATH。需要特殊配置时，也能在设置里指定本机完整 Git。</p>
+        <span class="tag">Bundled Git</span>
+      </article>
+
+      <article class="card">
+        <div class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9h-9z"/><path d="M13.5 2.5A9 9 0 0 1 21.5 10.5h-8z"/></svg></div>
+        <h3>资源占用有边界，也有账可查</h3>
+        <p>历史按页读取，日志与图只绘制可见部分；大文件按页解析；过期查询取消，托盘暂停自动刷新。设置里能看内存、缓存并清理可重建内容。</p>
+        <span class="tag">Budgeted</span>
+      </article>
+
+      <article class="card wide">
+        <div class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V6a2 2 0 0 1 2-2h7l2 2h5v3"/><path d="M8 20l3-8 3 4 2-3 2 4"/></svg></div>
+        <h3>眼睛和使用习惯都值得照顾</h3>
+        <p>5 套浅色 + 7 套深色主题；中英文切换；四档界面字号、独立代码字号；自动换行；统一 / 并排差异视图。面板宽度、历史列宽都能自己拖。</p>
+        <span class="tag">12 Themes · i18n · Resizable</span>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 场景 -->
+<section class="section" id="scenes">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">用到哪里</span>
+      <h2>四个具体场景，看看它替你省下的是哪一步</h2>
+      <p>不讲抽象功能清单，只讲一天里真实会发生的那几次操作。</p>
+    </div>
+
+    <div class="scene">
+      <div class="scene-num">01</div>
+      <div>
+        <h3>同时在维护好几个仓库的后端 / 全栈开发者</h3>
+        <p>打开装着所有项目的父目录，GitVista 自动发现每一个子仓库，在一个列表里给出当前分支、领先/落后提交数和未提交改动。早上一次性批量拉取，下班前预览再统一推送。</p>
+        <p class="pain"><b>以前：</b>为每个仓库开一个终端，或者在一个客户端里开一堆标签页，逐个数谁还没推。</p>
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="scene-num">02</div>
+      <div>
+        <h3>提交前想再确认一眼改了什么的人</h3>
+        <p>工作区与暂存区分列，勾选文件只是「选择」而不是「暂存」。点开任一文件看并排差异，决定这一小段改动到底进不进去。推送前还有一层预览：待推送提交、文件、目标远端都列出来。</p>
+        <p class="pain"><b>以前：</b><code>git add .</code> 之后才发现把一个临时调试文件也带上了，或者推完才发现推错了分支。</p>
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="scene-num">03</div>
+      <div>
+        <h3>只想快速记一笔、不想开大窗口的时候</h3>
+        <p>把迷你横条贴在屏幕边缘，它平时是一条细条，悬停展开。写代码时随手唤起，写一句说明，创建本地提交；需要推的时候再走推送预览。收起后它不占用你的桌面。</p>
+        <p class="pain"><b>以前：</b>为了一句「修个 typo」的提交，切到客户端、等它加载、提交、再切回来。</p>
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="scene-num">04</div>
+      <div>
+        <h3>刚上手 Git 的同事，和不愿意配环境的 Windows 用户</h3>
+        <p>安装包内置 MinGit，装完打开仓库就能用，不用先装 Git for Windows、不用配 PATH、不用折腾终端编码。每个动作旁边都写了通俗解释：获取是「先看看远端有什么」，拉取是「把远端变化整合进来」。</p>
+        <p class="pain"><b>以前：</b>装了客户端却提示「找不到 git 可执行文件」，卡在第一步。</p>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-top:46px">
+      <figure class="shot">
+        <img src="assets/img/workspace-workbench-091.png" alt="多仓库工作区总览" loading="lazy" />
+        <figcaption>多仓库工作区：每个仓库独立报告状态与结果</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="assets/img/push-preview.png" alt="推送预览面板" loading="lazy" />
+        <figcaption>推送预览：执行前重新核对提交、文件与目标</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 功能 -->
+<section class="section sec-soft" id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">功能详解</span>
+      <h2>把每一次「不确定」都变成看得见的一屏</h2>
+      <p>下面每一块都对应界面上真实存在的一处操作，配截图说明。</p>
+    </div>
+
+    <div class="feature-row">
+      <div class="feature-copy">
+        <h3>看修改，再提交</h3>
+        <p>左边选文件，右边看差异。<b>Diff / Full Code</b> 在差异与完整源码之间切换，<b>Unified / Split</b> 切换统一与并排视图。勾选文件只是选择，并不等于已经暂存 —— 批量暂存、取消暂存、提交或修订上一次提交都由你确认。</p>
+        <ul class="feature-list">
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>工作区 / 暂存区分开</b>，不会把没打算提交的东西顺手带上</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>并排差异 + 完整源码</b>，改动上下文一眼看完</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>推送预览会重新核对</b> HEAD、分支、远端及索引，内容变了先刷新</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>未暂存的后续改动</b>不会悄悄混进已审阅的暂存提交</span></li>
+        </ul>
+      </div>
+      <figure class="shot feature-shot">
+        <img class="only-dark" src="assets/img/clean-diff-dark.png" alt="并排差异视图" loading="lazy" />
+        <img class="only-light" src="assets/img/clean-diff-light.png" alt="并排差异视图（浅色主题）" loading="lazy" />
+        <figcaption>并排差异，内容再长也能逐行核对</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature-row flip">
+      <div class="feature-copy">
+        <h3>查历史，不把整个仓库塞进内存</h3>
+        <p>历史支持文本、哈希、正则、分支、作者、日期和路径筛选 —— 筛选作用在 Git 历史本身，不局限于当前已加载的那一页。提交图、文件树、改动内容与完整历史源码联动，点节点或连线即可定位相关提交。</p>
+        <ul class="feature-list">
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span>提交历史<b>每页最多 250 条</b>，文件历史<b>每页 100 条</b>，支持前后翻页</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span>提交图与列表<b>只绘制可见区域</b>，长历史不会堆出成吨 DOM</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span>大文件与大 Diff 按 <b>400 行 / 约 128 KiB</b> 分页，保留完整内容翻页入口</span></li>
+        </ul>
+      </div>
+      <figure class="shot feature-shot">
+        <img class="only-dark" src="assets/img/interactive-graph-dark.png" alt="交互式提交图" loading="lazy" />
+        <img class="only-light" src="assets/img/interactive-graph-light.png" alt="交互式提交图（浅色主题）" loading="lazy" />
+        <figcaption>交互式提交图：点击节点或连线定位提交</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature-row">
+      <div class="feature-copy">
+        <h3>获取、拉取、推送，三个动作各有分工</h3>
+        <p>界面上不假设你已经背熟了 Git 术语，每个动作旁边都写了它在干什么。工具箱覆盖分支、标签、Stash、合并、普通变基、拣选、反向提交、重置、工作树、补丁和子模块 —— 破坏性动作有确认，强制推送固定使用 <code>--force-with-lease</code>。</p>
+        <ul class="feature-list">
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>获取</b>先看远端有什么 · <b>拉取</b>默认仅快进，分叉时停下来</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>冲突处理</b>可选 ours / theirs，也可手动编辑后标记解决再继续</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>写操作串行执行</b>，同仓库不会两个 Git 写命令撞在一起</span></li>
+        </ul>
+      </div>
+      <figure class="shot feature-shot">
+        <img class="only-dark" src="assets/img/ide-layout-dark.png" alt="IDE 风格布局" loading="lazy" />
+        <img class="only-light" src="assets/img/ide-layout-light.png" alt="IDE 风格布局（浅色主题）" loading="lazy" />
+        <figcaption>IDE 风格布局：文件树 · 差异 · 历史联动</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature-row flip">
+      <div class="feature-copy">
+        <h3>迷你横条：需要时展开，忙起来收好</h3>
+        <p>第一次使用时才创建，所以平时不会多占一份进程。悬停展开，靠近屏幕边缘磁吸收起。它支持拉取、查看最近提交、快捷提交和推送预览 —— 写一句说明就能留下一个可追溯的本地提交。</p>
+        <ul class="feature-list">
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span>快捷提交会<b>显示文件与来源</b>，不是盲提交</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span>关闭窗口默认<b>询问退出或隐藏到托盘</b>，可记住选择</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span>只留托盘时<b>暂停自动刷新</b>，恢复窗口时重新读取</span></li>
+        </ul>
+      </div>
+      <figure class="shot feature-shot strip">
+        <img src="assets/img/mini-bar-084.png" alt="迷你横条" width="360" height="56" loading="lazy" />
+        <figcaption>迷你横条：贴边待命，悬停展开</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature-row">
+      <div class="feature-copy">
+        <h3>主题、字号、语言，按你的眼睛来</h3>
+        <p>5 套浅色主题（light / sand / sky / mint / lavender）与 7 套深色主题（dark / midnight / nord / forest / rose / darcula / deep）。中英文界面切换，四档界面字号加独立代码字号，代码区可自动换行。面板宽度、历史列宽都能拖。</p>
+        <ul class="feature-list">
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>12 套主题</b>，深浅色分别适配语法配色</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>中 / English</b> 一键切换，术语附通俗说明</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>面板与列宽可拖</b>，多窄的屏都能安排下</span></li>
+        </ul>
+      </div>
+      <figure class="shot feature-shot">
+        <img src="assets/img/appearance-084.png" alt="外观设置与主题选择" loading="lazy" />
+        <figcaption>外观设置：主题、字号、差异视图</figcaption>
+      </figure>
+    </div>
+
+    <div class="grid grid-4" style="margin-top:24px">
+      <figure class="shot"><img src="assets/img/workbench-light.png" alt="浅色主题工作台" loading="lazy" /><figcaption>浅色主题</figcaption></figure>
+      <figure class="shot"><img src="assets/img/history-columns-084.png" alt="历史列配置" loading="lazy" /><figcaption>历史列可配置</figcaption></figure>
+      <figure class="shot"><img src="assets/img/settings-git.png" alt="Git 设置" loading="lazy" /><figcaption>可指定系统 Git</figcaption></figure>
+      <figure class="shot"><img src="assets/img/resizable-workbench.png" alt="可调整布局" loading="lazy" /><figcaption>布局可自由拖动</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 对比 -->
+<section class="section" id="compare">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">功能对比</span>
+      <h2>和常见 Git 客户端放在一起看</h2>
+      <p>下表按各产品公开资料与其官方文档整理，只对比公开、可验证的能力。勾选与部分支持的区别写在注解里。</p>
+    </div>
+
+    <div class="table-scroll">
+      <table class="cmp">
+        <caption class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">GitVista 与常见 Git 客户端功能对比</caption>
+        <thead>
+          <tr>
+            <th scope="col">能力</th>
+            <th scope="col" class="col-us"><span class="cmp-name">GitVista <span class="badge">本页</span></span></th>
+            <th scope="col">GitHub Desktop</th>
+            <th scope="col">Sourcetree</th>
+            <th scope="col">GitKraken</th>
+            <th scope="col">Fork</th>
+            <th scope="col">TortoiseGit</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">价格 / 授权</th>
+            <td class="col-us"><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">免费 · MIT 开源</span></span></td>
+            <td><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">免费</span></span></td>
+            <td><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">免费</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">免费版 + 付费档</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">付费，有试用</span></span></td>
+            <td><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">免费开源</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">内置 Git，免装免配</th>
+            <td class="col-us"><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">内置 MinGit 2.47.1，可切回系统 Git</span></span></td>
+            <td><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">内置 Git，但隐藏且不易排查</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">自带但常需手动指向外部 Git</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">倾向使用系统 Git</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">使用系统 Git / 凭据管理器</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">需自行安装 Git for Windows</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">多仓库统一工作区</th>
+            <td class="col-us"><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">打开父目录自动发现，按仓库报告结果</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">一个仓库一个窗口</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">多标签页 / 多窗口，无聚合视图</span></span></td>
+            <td><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">Workspaces 多仓库聚合</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">无同等聚合界面</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">资源管理器内单仓库操作</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">推送前逐项预览</th>
+            <td class="col-us"><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">列出待推送提交与暂存内容，内容变化要求重新确认</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">直接 Push origin</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">推送对话框，非内容级预览</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">推送对话框，非内容级预览</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">推送对话框，非内容级预览</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">推送对话框，非内容级预览</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">桌面迷你快捷入口</th>
+            <td class="col-us"><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">迷你横条：快捷提交、拉取、推送预览，可磁吸收起</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">无</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">无</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">无</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">无</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">无</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">界面语言 / 主题</th>
+            <td class="col-us"><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">中 / English；12 套主题；4 档界面字号</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">跟随系统深浅色，主题数少</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">有深浅色，自定义有限</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">多套主题，部分需付费</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">有深浅色主题</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">跟随系统主题</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">大仓库分页与内存预算</th>
+            <td class="col-us"><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">分页 + 可见区渲染 + 取消过期读取，附公开实测报告</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">未公开预算口径</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">大仓库易卡顿的历史口碑</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">未公开预算口径</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">未公开预算口径</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">未公开预算口径</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">免注册、免登录</th>
+            <td class="col-us"><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">无需账号，打开即用</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">需登录 GitHub 账号</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">部分功能需 Atlassian 账号</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">需登录账号</span></span></td>
+            <td><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">无需账号</span></span></td>
+            <td><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">无需账号</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">代码审查 / PR / Issue 集成</th>
+            <td class="col-us"><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">专注本地 Git 操作，不做托管平台集成</span></span></td>
+            <td><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">GitHub PR 全流程</span></span></td>
+            <td><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">Bitbucket / Jira 深度集成</span></span></td>
+            <td><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">多平台集成是其主打</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">有托管平台快捷跳转</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">无</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">Linux / macOS 支持</th>
+            <td class="col-us"><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">当前主要面向 Windows x64</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">Win / macOS</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">Win / macOS（已下架 Linux）</span></span></td>
+            <td><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">Win / macOS / Linux</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">Win / macOS</span></span></td>
+            <td><span class="mark part"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg><span class="txt">Windows 资源管理器集成</span></span></td>
+          </tr>
+          <tr>
+            <th scope="row">公开资源占用实测报告</th>
+            <td class="col-us"><span class="mark yes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="txt">含测试机配置、场景、采样方法与局限性说明</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">无</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">无</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">无</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">无</span></span></td>
+            <td><span class="mark no"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="txt">无</span></span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="legend">
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg> 支持</span>
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--yellow)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg> 部分支持 / 有前提</span>
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg> 不支持</span>
+    </div>
+
+    <div class="note">
+      <b>关于这张表的诚实说明。</b>GitVista 一列来自本项目的源码、README 与 <code>docs/resource-report-0.9.8.md</code>，可以逐条核对。
+      其余各列依据各产品公开官网、文档与常见第三方对比整理，反映整理时的普遍认知，<b>产品迭代很快，请以各自官网为准</b>。
+      表中也如实列出了 GitVista 目前明确<b>不擅长</b>的地方（无托管平台 PR/Issue 集成、暂不支持 Linux 与 macOS），
+      因为它是一个专注本地 Git 操作的 Windows 工具，而不是要替代所有人的全能平台客户端。
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 实测报告 -->
+<section class="section sec-soft" id="report">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">使用报告</span>
+      <h2>体积与内存：把实际数字摆出来，而不是给「轻量」两个字装上美颜</h2>
+      <p>测量日期 2026-09-27，Windows x64，对比本机已安装的 0.9.7 与本次生产构建的 0.9.8。完整报告见仓库 <code>docs/resource-report-0.9.8.md</code>。</p>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat">
+        <div class="v">121.09 <small>MiB</small></div>
+        <div class="k">Windows 安装器</div>
+        <div class="d flat">GitVista-0.9.8-Setup-x64.exe</div>
+      </div>
+      <div class="stat">
+        <div class="v">478.93 <small>MiB</small></div>
+        <div class="k">解压后可运行程序</div>
+        <div class="d down">比 0.9.7 的 510.74 MiB 减少 31.81 MiB</div>
+      </div>
+      <div class="stat">
+        <div class="v">0.92 <small>MiB</small></div>
+        <div class="k">应用代码归档 app.asar</div>
+        <div class="d down">从 32.79 MiB 降下来</div>
+      </div>
+      <div class="stat">
+        <div class="v">276.3 <small>MiB</small></div>
+        <div class="k">前台主窗口私有内存均值</div>
+        <div class="d down">比 0.9.7 降低 40.3 MiB（12.7%）</div>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-top:24px">
+      <div class="panel">
+        <h3>真实前台主窗口：私有内存对比</h3>
+        <p style="font-size:13.3px;color:var(--text-muted)">
+          相同 1560 × 1000 内容区、DPR 1；每次采样前后确认页面可见，Windows 实际前台窗口属于该测试进程；各取 5 次样本。
+        </p>
+        <div class="bars" style="margin-top:22px">
+          <div class="bar-row">
+            <span class="lbl">0.9.7 私有内存</span>
+            <span class="bar-track"><span class="bar old" style="width:100%"></span></span>
+            <span class="bar-val"><b>316.7</b> MiB</span>
+          </div>
+          <div class="bar-row">
+            <span class="lbl">0.9.8 私有内存</span>
+            <span class="bar-track"><span class="bar new" style="width:87.3%"></span></span>
+            <span class="bar-val"><b>276.3</b> MiB</span>
+          </div>
+          <div class="bar-row">
+            <span class="lbl">0.9.7 工作集</span>
+            <span class="bar-track"><span class="bar old" style="width:100%"></span></span>
+            <span class="bar-val"><b>497.4</b> MiB</span>
+          </div>
+          <div class="bar-row">
+            <span class="lbl">0.9.8 工作集</span>
+            <span class="bar-track"><span class="bar new" style="width:80.9%"></span></span>
+            <span class="bar-val"><b>402.5</b> MiB</span>
+          </div>
+        </div>
+        <p style="font-size:12.3px;color:var(--text-dim);margin-top:18px">
+          应用进程数由 5 降至 4。最小–最大区间：0.9.8 私有内存 276.34–276.36 MiB。
+        </p>
+      </div>
+
+      <div class="panel">
+        <h3>各使用场景私有内存（MiB）</h3>
+        <p style="font-size:13.3px;color:var(--text-muted)">每场景 5 次采样均值。此轮 Windows 将主窗口判为隐藏/被遮挡，因此主窗口数据只作为后台数据，不作为前台低内存宣传。</p>
+        <div class="table-scroll" style="margin-top:18px;border-radius:6px">
+          <table class="cmp" style="min-width:0;font-size:12.8px">
+            <thead>
+              <tr><th scope="col">场景</th><th scope="col">0.9.7</th><th scope="col" class="col-us">0.9.8</th><th scope="col">变化</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">主窗口后台启动</th><td>216.0</td><td class="col-us">164.9</td><td style="color:var(--green)">−51.1</td></tr>
+              <tr><th scope="row">后台切换历史后</th><td>217.9</td><td class="col-us">161.5</td><td style="color:var(--green)">−56.4</td></tr>
+              <tr><th scope="row">进入迷你模式</th><td>219.0</td><td class="col-us">210.4</td><td style="color:var(--green)">−8.6</td></tr>
+              <tr><th scope="row">托盘隐藏 70 秒</th><td>212.3</td><td class="col-us">205.3</td><td style="color:var(--green)">−7.0</td></tr>
+              <tr><th scope="row">恢复主窗口后再次后台</th><td>287.5</td><td class="col-us">209.5</td><td style="color:var(--green)">−78.0</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-top:24px">
+      <div class="panel">
+        <h3>体积账目：三本不同的账</h3>
+        <p style="font-size:13.3px;color:var(--text-muted);margin-bottom:16px">
+          源码大小、开发目录大小、安装大小是三本不同的账。<code>node_modules</code>、历史安装包和测试浏览器目录不能全部算成「软件运行必需体积」。
+        </p>
+        <dl class="kv">
+          <dt>源码与文档</dt><dd>约 4.85 MiB</dd>
+          <dt>安装器</dt><dd>121.09 MiB</dd>
+          <dt>便携包</dt><dd>120.90 MiB</dd>
+          <dt>解压后可运行程序</dt><dd>478.93 MiB</dd>
+          <dt>应用代码 app.asar</dt><dd>0.92 MiB</dd>
+          <dt>内置 MinGit</dt><dd>110.55 MiB（解压程序的一部分，不能重复相加）</dd>
+        </dl>
+        <p style="font-size:12.3px;color:var(--text-dim);margin-top:16px">
+          GitVista 基于 Electron，带有浏览器运行时。它免部署、少配置，但不是几 MB 的原生小工具 —— 与其让用户猜，不如直接说明。
+        </p>
+      </div>
+
+      <div class="panel">
+        <h3>已加上的资源边界</h3>
+        <ul class="check-list">
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span>全局最多 <b>6 个 Git 子进程</b>、每仓库 <b>2 个读取</b>、最多 <b>8 个执行中的完整读取查询</b></span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span>读取缓冲总预算 <b>32 MiB</b>；HTTP 缓存预算 <b>32 MiB</b></span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span>可重建缓存合计超过 <b>128 MiB</b> 时安排下次启动维护，设置页可手动清理</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span>单仓库工作台隐藏 <b>60 秒</b>后释放历史、差异、源码等只读数据，保留草稿与筛选位置</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>清理只处理应用可确认归属的文件</b>，仓库、提交草稿和设置不会被删</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-top:24px">
+      <div class="panel">
+        <h3>实际跑过的验证</h3>
+        <ul class="check-list">
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>后端 16 项</b>：连续 100 次预览，真实对象数量与索引字节保持不变</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>缓存维护 7 项</b>：超预算回收、配置与持久化存储保留、拒绝目录联接</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>安装与清理 38 项</b>隔离验证，覆盖下载失败保留上一份产物、卸载越界保护</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>界面与数据规模</b>：100 个仓库、10,100 条提交翻页；100,001 行源码还原；迷你窗口 100,005 行补丁最多绘制 400 行</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>窗口隐藏</b>：60.314 秒触发释放，70 秒时 DOM 从 1,734 降至 384</span></li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h3>这份报告没有声称什么</h3>
+        <ul class="check-list">
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg><span>这是<b>单机短时场景对照</b>，旧版先运行、新版后运行；系统文件缓存、GC、GPU 驱动与采样时机都会影响数字</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg><span>不能据此证明 8 小时或多天运行「零泄漏」，也不宣称经过全天耐久测试</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg><span>顺序读写路径并未实测验证，报告只列出已测范围</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg><span>32 MiB 是读取缓冲预算，<b>不是整个应用的内存上限</b>；128 MiB 是维护阈值，不是每时每刻的硬上限</span></li>
+        </ul>
+        <p style="font-size:12.6px;color:var(--text-dim);margin-top:18px">
+          测试机：AMD Ryzen 7 5800H，16 个逻辑处理器，操作系统可见内存 13.86 GiB，Windows 内核 10.0.26200，两版均为 Electron 44.4.5。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 使用说明 -->
+<section class="section" id="guide">
+  <div class="wrap-narrow">
+    <div class="sec-head">
+      <span class="eyebrow">使用说明</span>
+      <h2>从安装到第一次提交，大约三分钟</h2>
+      <p>下面按真实操作顺序排列：装好、打开仓库、看改动、提交、推送。</p>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div>
+          <h3>安装</h3>
+          <p>下载 <code>GitVista-0.9.8-Setup-x64.exe</code> 安装器，可以自选安装目录，默认建议 <code>D:\LenovoSoftstore\GitVista</code>，并创建桌面 <b>GitVista</b> 快捷方式。启动不需要管理员权限之外的额外配置。</p>
+          <p>也提供 <code>GitVista-0.9.8-Windows-x64.exe</code> 便携包。便携包启动时需要解压，日常频繁使用更推荐安装版 —— 便携不是「零磁盘占用」的魔法，它只是少了一步安装。</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-n">2</div>
+        <div>
+          <h3>打开仓库，或者一整个工作区</h3>
+          <p>打开有 <code>.git</code> 的目录，进入单仓库工作台；打开装着多个项目的父目录，进入多仓库工作区。也可以指定父目录克隆远端仓库，完成后自动打开。最近打开的位置保存在本机，最多 30 条。</p>
+          <p>多仓库批量操作按仓库报告成功、失败和跳过。它们不是一个跨仓库事务：某个仓库失败，不会撤回其他仓库已经完成的提交或推送。</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-n">3</div>
+        <div>
+          <h3>看修改，再提交</h3>
+          <p>左边选文件，右边看差异。勾选文件只是选择，并不等于已经暂存。可以批量暂存、取消暂存、提交或修订上一次提交。</p>
+          <p>迷你横条的 <b>Quick commit / 快捷提交</b> 会显示文件与来源，填写说明后创建本地提交。<b>本地提交成功，不等于已经推送到远端。</b></p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-n">4</div>
+        <div>
+          <h3>获取、拉取、提交、推送，四个动作的分工</h3>
+          <div class="table-scroll" style="margin-top:14px;border-radius:6px">
+            <table class="cmp" style="min-width:0;font-size:13.2px">
+              <thead><tr><th scope="col">动作</th><th scope="col">通俗解释</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">Fetch / 获取</th><td>先看看远端有什么新东西，更新远端引用</td></tr>
+                <tr><th scope="row">Pull / 拉取</th><td>把远端变化整合到当前分支；默认仅快进，分叉时停下来</td></tr>
+                <tr><th scope="row">Commit / 提交</th><td>给本地修改留一个可追溯的版本</td></tr>
+                <tr><th scope="row">Push / 推送</th><td>把本地提交送到配置好的远端</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p style="margin-top:14px">推送前先走推送预览：列出待推送提交和暂存内容，执行前重新核对 HEAD、分支、远端及索引。工具箱还提供分支、标签、Stash、合并、普通变基、拣选、反向提交、重置、工作树、补丁和子模块操作。破坏性动作有确认，强制推送使用 <code>--force-with-lease</code>。</p>
+          <p>冲突可以选 ours / theirs，也可以手动编辑后标记解决，再继续当前 Git 操作。</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-n">5</div>
+        <div>
+          <h3>需要时展开，忙起来收好</h3>
+          <p>标题栏 <b>—</b> 最小化到任务栏；标题栏 <b>×</b> 默认询问退出或隐藏到右下角托盘，可以记住选择，之后在 <b>设置 → 常规</b> 里随时改。</p>
+          <p><b>Mini bar / 迷你横条</b>第一次使用时才创建，悬停展开，靠近屏幕边缘可磁吸收起。只留托盘时会暂停自动历史刷新；恢复窗口时重新读取。Git 写操作或设置保存未结束时，会阻止直接退出，避免手快关掉正在干活的程序。</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-n">6</div>
+        <div>
+          <h3>从源码自己构建（可选）</h3>
+          <p>需要 Windows 与 Node.js 22 或更新版本。</p>
+          <pre class="code"><span class="c"># 获取源码并安装依赖</span>
+git clone https://github.com/sssjack/gitvista.git
+<span class="p">cd</span> gitvista
+npm ci
+
+<span class="c"># 开发模式（仅监听 127.0.0.1:5179）</span>
+npm run dev
+
+<span class="c"># 生成 Windows x64 安装器与便携包，产物在 release/</span>
+npm run package
+
+<span class="c"># 只要本机可运行的解压目录</span>
+npm run package:dir</pre>
+          <div class="copy-row">
+            <button class="copy-btn" data-copy="git clone https://github.com/sssjack/gitvista.git&#10;cd gitvista&#10;npm ci&#10;npm run package">复制命令</button>
+          </div>
+          <p style="margin-top:14px">打包会获取并验证 MinGit 2.47.1。已有可用版本会复用；下载或构建失败不会替换上一份成功产物。发布包只带应用构建结果与运行所需文件，不夹带开发用的整套 <code>node_modules</code>。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-top:36px">
+      <div class="panel">
+        <h3>操作上的几个要点</h3>
+        <ul class="check-list">
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>筛选作用于全部历史</b>，不只是当前这一页</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>拖动分隔线</b>调整面板和列宽，多窄的屏都能安排下</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span>图上<b>断开的父节点</b>表示它位于当前结果之外，不代表提交丢了</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><span><b>设置 → 常规 → 存储与性能</b>可查看当前进程内存与缓存并手动清理</span></li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>能力边界</h3>
+        <ul class="check-list">
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg><span>不是 IDE，也不是完整的代码编辑器；完整历史源码主要用于阅读</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg><span>单文件文本读取有 <b>4 MiB 限制</b>；大差异会截断并提示，分页并不取消安全上限</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg><span>内置 MinGit 不含 Git Bash、Perl 扩展等完整环境；特殊钩子可在设置中指定系统 Git</span></li>
+          <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg><span>不把二进制或无效 UTF-8 文件当普通文本保存；缺失 Git 对象会报错，不自动重置你的仓库</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-top:24px">
+      <figure class="shot"><img src="assets/img/clone-repository-084.png" alt="克隆仓库" loading="lazy" /><figcaption>克隆仓库：指定父目录，完成后自动打开</figcaption></figure>
+      <figure class="shot"><img src="assets/img/folder-tree.png" alt="文件树与历史" loading="lazy" /><figcaption>文件树与历史联动</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 下载 -->
+<section class="section sec-soft" id="download">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">下载</span>
+      <h2>装上，打开一个仓库，就知道值不值</h2>
+      <p>Windows x64 · 版本 0.9.8 · 内置 MinGit 2.47.1 · 无需注册账号。</p>
+    </div>
+
+    <div class="dl-grid">
+      <div class="dl-main">
+        <h3>GitVista 0.9.8 for Windows</h3>
+        <p>推荐使用安装器：可选择安装目录，自动创建桌面快捷方式，卸载干净。</p>
+        <div class="dl-actions">
+          <a class="dl-item" href="https://github.com/sssjack/gitvista/releases/download/v0.9.8/GitVista-0.9.8-Setup-x64.exe">
+            <span class="mi"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/></svg></span>
+            <span class="body">
+              <span class="nm">安装版（推荐）</span>
+              <span class="mt">GitVista-0.9.8-Setup-x64.exe · 121.09 MiB</span>
+            </span>
+            <span class="go"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+          </a>
+          <a class="dl-item" href="https://github.com/sssjack/gitvista/releases/download/v0.9.8/GitVista-0.9.8-Windows-x64.exe">
+            <span class="mi"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M12 9v6m-3-3 3 3 3-3"/></svg></span>
+            <span class="body">
+              <span class="nm">便携版</span>
+              <span class="mt">GitVista-0.9.8-Windows-x64.exe · 120.90 MiB</span>
+            </span>
+            <span class="go"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+          </a>
+          <a class="dl-item" href="https://github.com/sssjack/gitvista/releases/latest">
+            <span class="mi"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V6a2 2 0 0 1 2-2h7l2 2h5v13z"/></svg></span>
+            <span class="body">
+              <span class="nm">查看所有版本与校验信息</span>
+              <span class="mt">github.com/sssjack/gitvista/releases</span>
+            </span>
+            <span class="go"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+          </a>
+        </div>
+        <p style="font-size:12.4px;color:var(--text-dim);margin-top:20px">
+          首次运行 Windows 可能提示来自未知发布者 —— 这是未做代码签名的直接后果，不是打包缺陷。选择「更多信息 → 仍要运行」即可。
+        </p>
+      </div>
+
+      <div class="dl-side">
+        <div class="panel">
+          <h4>系统要求</h4>
+          <ul>
+            <li>Windows 10 / 11，x64</li>
+            <li>磁盘：安装后约 479 MiB（含内置 MinGit）</li>
+            <li>内存：前台主窗口实测私有内存均值约 276 MiB</li>
+            <li>无需单独安装 Git、Node.js 或任何运行时</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h4>装之前值得知道</h4>
+          <ul>
+            <li>代码阅读与仓库分析<b>完全在本地</b>完成；拉取、推送仍走你配置的远端与认证方式</li>
+            <li>HTTPS Token / 密码只保留在应用本次运行的内存里；SSH 与凭据助手遵循本机配置</li>
+            <li>采用 MIT 许可证，可自由使用、修改、分发；第三方依赖遵循各自许可证</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h4>源码</h4>
+          <p style="margin-bottom:12px">想自己构建或先读代码：</p>
+          <a class="dl-item" href="https://github.com/sssjack/gitvista" style="padding:11px 13px">
+            <span class="mi" style="width:28px;height:28px"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2A10 10 0 0 0 8.8 21.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.7.3-1.1.6-1.4-2.2-.2-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.2-.4-1.2.1-2.6 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 5 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.6.6.7 1 1.6 1 2.7 0 3.9-2.4 4.8-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></svg></span>
+            <span class="body"><span class="nm">sssjack/gitvista</span><span class="mt">GitHub 仓库</span></span>
+            <span class="go"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ============================================================ 页脚 -->
+<footer>
+  <div class="wrap foot-inner">
+    <div>
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">
+        <img src="assets/icon.png" alt="" width="20" height="20" style="border-radius:6px" />
+        <b style="color:var(--text);font-size:13.5px">GitVista</b>
+        <span>0.9.8</span>
+      </div>
+      <div>看清每一次变更，再放心按下提交。 · Windows x64 Git 桌面工作台</div>
+    </div>
+    <nav class="foot-links">
+      <a href="#why">优势</a>
+      <a href="#scenes">场景</a>
+      <a href="#features">功能</a>
+      <a href="#compare">对比</a>
+      <a href="#report">实测报告</a>
+      <a href="#guide">使用说明</a>
+      <a href="https://github.com/sssjack/gitvista">GitHub</a>
+      <a href="https://github.com/sssjack/gitvista/blob/main/LICENSE">MIT 许可证</a>
+    </nav>
+  </div>
+  <div class="wrap" style="margin-top:22px;font-size:12px;color:var(--text-dim)">
+    页面中的体积与内存数据来自本机 0.9.8 短时实测报告，仓库大小与使用方式都会影响结果。界面截图使用演示数据。
+  </div>
+</footer>
+
+<script>
+(function () {
+  document.querySelectorAll('.copy-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.getAttribute('data-copy');
+      var done = function () {
+        var old = btn.textContent;
+        btn.textContent = '已复制';
+        setTimeout(function () { btn.textContent = old; }, 1400);
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) {}
+        document.body.removeChild(ta);
+      }
+    });
+  });
+
+  // 让导航链接平滑滚动并处理无 JS 时的降级
+  if ('scrollBehavior' in document.documentElement.style) {
+    document.documentElement.style.scrollBehavior = 'smooth';
+  }
+
+  // 明亮 / 深色主题切换
+  (function () {
+    var KEY = 'gitvista-site-theme';
+    var root = document.documentElement;
+    var btn = document.getElementById('themeBtn');
+    if (!btn) return;
+
+    function current() {
+      return root.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    }
+    function syncLabel(theme) {
+      // 读屏用户听到的是"切到另一种主题"的动作，而不是当前状态
+      btn.setAttribute('aria-label', theme === 'light' ? '切换到深色主题' : '切换到明亮主题');
+      btn.setAttribute('title', theme === 'light' ? '切换到深色主题' : '切换到明亮主题');
+    }
+    function apply(theme) {
+      if (theme === 'light') root.setAttribute('data-theme', 'light');
+      else root.removeAttribute('data-theme');
+      syncLabel(theme);
+    }
+
+    apply(current());
+
+    btn.addEventListener('click', function () {
+      var next = current() === 'light' ? 'dark' : 'light';
+      apply(next);
+      try { localStorage.setItem(KEY, next); } catch (e) { /* 忽略隐私模式写入失败 */ }
+    });
+  })();
+})();
+</script>
+
+</body>
+</html>
