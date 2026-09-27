@@ -3,8 +3,8 @@
   "version": "0.9.8",
   "private": true,
   "description": "GitVista — 看清每一次变更",
-  "author": "GitVista",
-  "license": "UNLICENSED",
+  "author": "ChenKeXin",
+  "license": "MIT",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {

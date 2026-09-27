@@ -204,4 +204,4 @@ npm run clean:artifacts -- -WhatIf
 
 ## 许可证
 
-项目在 `package.json` 中标记为 `UNLICENSED`，未授予 MIT、Apache 等开源许可证。第三方依赖遵循各自许可证。
+本项目采用 **MIT 许可证**，见 [LICENSE](LICENSE)。你可以自由使用、修改、分发，包括商业用途，只需保留版权声明与许可证原文。第三方依赖遵循各自许可证。
