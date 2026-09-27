@@ -4,8 +4,10 @@ import type { AppSettings, DesktopCommand, DesktopState, GitLogResult, MiniFrame
 import { translate } from '../shared/messages';
 
 type Rectangle = Electron.Rectangle;
-export const COMPACT_WIDTH = 128;
-export const EXPANDED_WIDTH = 360;
+export const COMPACT_WIDTH = 192;
+export const EXPANDED_WIDTH = 440;
+export const PANEL_WIDTH = 480;
+export const PANEL_HEIGHT = 560;
 export const HEIGHT = 40;
 export const EDGE_PEEK = 6;
 export function fitBounds(bounds: Rectangle, area: Rectangle): Rectangle {
@@ -52,6 +54,7 @@ interface Dependencies {
 export class DesktopCompanion {
   private tray: Tray;
   private mode: DesktopState['mode'] = 'main';
+  private panel: DesktopState['panel'] = null;
   private collapsed = false;
   private expanded = false;
   private direction: DesktopState['direction'] = 'left';
@@ -91,7 +94,7 @@ export class DesktopCompanion {
   }
   state(): DesktopState {
     const settings = this.dependencies.settings();
-    return { mode: this.mode, collapsed: this.collapsed, expanded: this.expanded, direction: this.direction, edge: this.edge, frame: this.frame, repo: settings.lastRepo || '', commits: settings.lastRepo === this.repo ? this.commits : [], busy: this.working || this.dependencies.busy(), error: this.error, language: settings.language, theme: settings.theme };
+    return { mode: this.mode, panel: this.panel, collapsed: this.collapsed, expanded: this.expanded, direction: this.direction, edge: this.edge, frame: this.frame, repo: settings.lastRepo || '', commits: settings.lastRepo === this.repo ? this.commits : [], busy: this.working || this.dependencies.busy(), error: this.error, language: settings.language, theme: settings.theme };
   }
   private t = (text: string) => translate(this.dependencies.settings().language, text);
   publish(): void {
@@ -129,6 +132,18 @@ export class DesktopCompanion {
     this.publish();
   }
   async command(command: DesktopCommand): Promise<void> {
+    if (command === 'changes' || command === 'pushPreview') {
+      this.mini(); this.stopAnimation();
+      this.panel = command === 'changes' ? 'changes' : 'push';
+      this.collapsed = false; this.expanded = true;
+      this.applyFrame(this.targetBounds()); this.publish(); this.window.show(); this.window.focus();
+      return;
+    }
+    if (command === 'closePanel') {
+      this.panel = null; this.hoveredAt = Date.now();
+      if (this.mode === 'mini' && this.compactBounds) { this.stopAnimation(); this.applyFrame(this.targetBounds()); }
+      this.publish(); return;
+    }
     if (command === 'mini' || command === 'latest') { this.mini(); if (command === 'latest') this.expand(); await this.refresh(); return; }
     if (command === 'expand') { this.expand(); return; }
     if (command === 'restore') { this.restore(); return; }
@@ -167,7 +182,7 @@ export class DesktopCompanion {
     if (this.mainWindow.isDestroyed()) return;
     if (this.mode === 'mini') {
       this.stopAnimation();
-      this.mode = 'main'; this.collapsed = false; this.expanded = false; this.edge = null; this.dragging = false;
+      this.mode = 'main'; this.panel = null; this.collapsed = false; this.expanded = false; this.edge = null; this.dragging = false;
       this.window.hide();
     }
     if (this.mainWindow.isMinimized()) this.mainWindow.restore();
@@ -176,6 +191,7 @@ export class DesktopCompanion {
   }
   hide = (): void => {
     this.stopAnimation();
+    this.panel = null;
     if (this.mode === 'mini' && this.compactBounds) {
       this.expanded = false; this.collapsed = false;
       this.applyFrame(this.compactBounds); this.publish();
@@ -191,6 +207,7 @@ export class DesktopCompanion {
   private targetBounds(): Rectangle {
     const compact = this.compactBounds!;
     const area = screen.getDisplayMatching(compact).workArea;
+    if (this.panel) return fitBounds({ ...compact, x: this.direction === 'left' ? compact.x + compact.width - PANEL_WIDTH : compact.x, width: PANEL_WIDTH, height: PANEL_HEIGHT }, area);
     if (this.collapsed) return collapsedBounds(compact, area, this.edge);
     if (!this.expanded) return compact;
     return fitBounds({ ...compact, x: this.direction === 'left' ? compact.x - (EXPANDED_WIDTH - COMPACT_WIDTH) : compact.x, width: EXPANDED_WIDTH }, area);
@@ -218,7 +235,8 @@ export class DesktopCompanion {
     this.previousBounds = JSON.stringify(this.window.getBounds());
   }
   private updateMousePassThrough(): boolean {
-    const inside = capsuleContains(this.visualBounds || this.window.getBounds(), screen.getCursorScreenPoint());
+    const bounds = this.visualBounds || this.window.getBounds(), point = screen.getCursorScreenPoint();
+    const inside = this.panel ? point.x >= bounds.x && point.x < bounds.x + bounds.width && point.y >= bounds.y && point.y < bounds.y + bounds.height : capsuleContains(bounds, point);
     const ignore = !inside && !this.dragging;
     if (ignore !== this.ignoringMouse) {
       this.ignoringMouse = ignore;
@@ -265,10 +283,10 @@ export class DesktopCompanion {
   private reposition = (): void => {
     if (this.mode !== 'mini' || !this.compactBounds) return;
     this.stopAnimation(); this.dragging = false;
-    this.edge = null; this.collapsed = false; this.expanded = false;
+    this.edge = null; this.collapsed = false; this.expanded = !!this.panel;
     this.compactBounds = fitBounds(this.compactBounds, screen.getDisplayMatching(this.compactBounds).workArea);
     this.chooseDirection(screen.getDisplayMatching(this.compactBounds).workArea);
-    this.applyFrame(this.compactBounds); this.settlingUntil = Date.now() + 150; this.publish();
+    this.applyFrame(this.targetBounds()); this.settlingUntil = Date.now() + 150; this.publish();
   };
   private tick(): void {
     if (this.mode !== 'mini' || this.window.isDestroyed() || !this.window.isVisible() || this.animation || this.dragging) return;
@@ -282,6 +300,8 @@ export class DesktopCompanion {
       this.movedAt = 0; this.adoptPosition(); return;
     }
     const inside = this.updateMousePassThrough();
+    // A review panel stays open while reading files or entering a message.
+    if (this.panel) return;
     if (inside) {
       this.hoveredAt = now;
       if (!this.enteredAt) this.enteredAt = now;

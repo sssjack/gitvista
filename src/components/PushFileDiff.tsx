@@ -5,7 +5,7 @@ import { useI18n } from '../lib/i18n';
 import DiffViewer from './DiffViewer';
 import './push-review.css';
 
-export type PushDiffTarget = { repo: string; path: string; oldPath?: string; source: 'commit' | 'staged' | 'working'; ref?: string; subject?: string };
+export type PushDiffTarget = { repo: string; path: string; oldPath?: string; source: 'commit' | 'staged' | 'working'; ref?: string; subject?: string; indexTree?: string; base?: string };
 export type PushDiffState = PushDiffTarget & { diff: DiffResult | null; loading: boolean; error: string; open: boolean };
 export function usePushFileDiff() {
   const [state, setState] = useState<PushDiffState | null>(null);
@@ -16,7 +16,7 @@ export function usePushFileDiff() {
     if (!document.querySelector('.push-file-diff-dialog')) opener.current = document.activeElement as HTMLElement | null;
     const id = ++request.current;
     setState({ ...file, diff: null, loading: true, error: '', open: true });
-    void window.gitvista.query<DiffResult>(file.repo, { type: 'diff', path: file.path, oldPath: file.oldPath, ref: file.source === 'commit' ? file.ref : undefined, staged: file.source === 'staged', workingTree: file.source === 'working' }).then(diff => {
+    void window.gitvista.query<DiffResult>(file.repo, { type: 'diff', path: file.path, oldPath: file.oldPath, ref: file.source === 'commit' ? file.ref : undefined, staged: file.source === 'staged', workingTree: file.source === 'working', indexTree: file.indexTree, base: file.base }).then(diff => {
       if (mounted.current && id === request.current) setState(current => current && { ...current, diff, loading: false });
     }).catch(cause => {
       if (mounted.current && id === request.current) setState(current => current && { ...current, error: cause instanceof Error ? cause.message : String(cause), loading: false });

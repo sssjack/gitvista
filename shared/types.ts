@@ -14,9 +14,10 @@ export interface DiffResult { text: string; binary: boolean; truncated: boolean 
 export interface CommitDetail { commit: GitCommit; body: string; files: { path: string; oldPath?: string; status: string; additions: string; deletions: string }[]; root: string; branches: string[]; inCurrentBranch: boolean }
 export interface GitLogOptions { text?: string; regex?: boolean; matchCase?: boolean; branch?: string; author?: string; since?: string; until?: string; paths?: string[]; order?: 'date' | 'topo'; firstParent?: boolean; noMerges?: boolean; skip?: number; limit?: number }
 export interface GitLogResult { commits: GitCommit[]; hasMore: boolean; nextSkip: number; warning?: string }
-export interface GitQuery { type: 'snapshot' | 'status' | 'log' | 'resolveRef' | 'logAuthors' | 'diff' | 'commit' | 'commitFiles' | 'blame' | 'fileHistory' | 'reflog' | 'compare' | 'submodules' | 'fileContent' | 'tree' | 'pushPreview'; remote?: string; base?: string; path?: string; oldPath?: string; staged?: boolean; workingTree?: boolean; ref?: string; to?: string; search?: string; author?: string; limit?: number; log?: GitLogOptions }
+export interface GitQuery { type: 'snapshot' | 'status' | 'log' | 'resolveRef' | 'logAuthors' | 'diff' | 'commit' | 'commitFiles' | 'blame' | 'fileHistory' | 'reflog' | 'compare' | 'submodules' | 'fileContent' | 'tree' | 'pushPreview'; remote?: string; base?: string; indexTree?: string; path?: string; oldPath?: string; staged?: boolean; workingTree?: boolean; ref?: string; to?: string; search?: string; author?: string; limit?: number; log?: GitLogOptions }
 export type GitActionType = 'stage' | 'unstage' | 'commit' | 'fetch' | 'pull' | 'push' | 'switch' | 'branchCreate' | 'branchRename' | 'branchDelete' | 'merge' | 'rebase' | 'cherryPick' | 'revert' | 'revertFile' | 'writeCommitGraph' | 'reset' | 'stashSave' | 'stashApply' | 'stashPop' | 'stashDrop' | 'tagCreate' | 'tagDelete' | 'remoteAdd' | 'remoteRemove' | 'remoteSetUrl' | 'discard' | 'resolve' | 'continue' | 'abort' | 'skip' | 'applyPatch' | 'ignore' | 'worktreeAdd' | 'worktreeRemove' | 'submoduleUpdate' | 'saveFile';
-export interface GitAction { type: GitActionType; paths?: string[]; path?: string; ref?: string; name?: string; message?: string; remote?: string; url?: string; mode?: string; content?: string; amend?: boolean; signoff?: boolean; force?: boolean; rebase?: boolean; includeUntracked?: boolean; staged?: boolean; expectedHead?: string; }
+export interface CommitFileSelection { path: string; source: 'index' | 'workingTree' }
+export interface GitAction { type: GitActionType; paths?: string[]; commitFiles?: CommitFileSelection[]; path?: string; ref?: string; name?: string; message?: string; remote?: string; url?: string; mode?: string; content?: string; amend?: boolean; signoff?: boolean; force?: boolean; rebase?: boolean; includeUntracked?: boolean; staged?: boolean; expectedHead?: string; expectedIndexTree?: string; commitStaged?: boolean; }
 export interface ActionResult { output: string }
 export interface RepoEntry { path: string; name: string; lastOpened: string; kind?: 'workspace' }
 export interface WorkspaceScan { root: string; repositories: RepoEntry[]; warnings: string[]; truncated: boolean }
@@ -37,10 +38,15 @@ export interface IdentityFields { name: string; email: string }
 export interface GitIdentity { local: IdentityFields; global: IdentityFields; effective: IdentityFields }
 export interface GitIdentityUpdate extends IdentityFields { scope: 'local' | 'global' }
 export interface RepositoryCredentials { username: string; secret: string }
-export interface DesktopState { mode: 'main' | 'mini'; collapsed: boolean; expanded: boolean; direction: 'left' | 'right'; edge: 'left' | 'right' | 'top' | 'bottom' | null; frame: MiniFrame; repo: string; commits: GitCommit[]; busy: boolean; error: string; language: AppLanguage; theme: AppTheme }
-export type DesktopCommand = 'mini' | 'tray' | 'restore' | 'refresh' | 'pull' | 'latest' | 'quit' | 'expand';
+export interface DesktopState { mode: 'main' | 'mini'; panel: 'changes' | 'push' | null; collapsed: boolean; expanded: boolean; direction: 'left' | 'right'; edge: 'left' | 'right' | 'top' | 'bottom' | null; frame: MiniFrame; repo: string; commits: GitCommit[]; busy: boolean; error: string; language: AppLanguage; theme: AppTheme }
+export type DesktopCommand = 'mini' | 'tray' | 'restore' | 'refresh' | 'pull' | 'latest' | 'quit' | 'expand' | 'changes' | 'pushPreview' | 'closePanel';
 export interface MiniFrame { x: number; y: number; width: number; height: number }
+export type MiniQuery = GitQuery & { type: 'status' | 'pushPreview' | 'diff' | 'commitFiles' };
+export type MiniAction = { type: 'stage' | 'unstage'; paths: string[] } | { type: 'push'; expectedHead: string; expectedIndexTree: string; remote: string; ref: string; name: string; commitStaged: boolean; message: string };
 export interface MiniBarApi {
+  repositories(context: string): Promise<RepoEntry[]>;
+  query<T = unknown>(repo: string, query: MiniQuery): Promise<T>;
+  action(repo: string, action: MiniAction): Promise<ActionResult>;
   desktopState(): Promise<DesktopState>;
   desktopCommand(command: DesktopCommand): Promise<void>;
   onDesktopState(listener: (state: DesktopState) => void): () => void;
@@ -79,4 +85,4 @@ export interface GitVistaApi {
 }
 declare global { interface Window { gitvista: GitVistaApi; gitvistaMini: MiniBarApi } }
 
-export interface PushPreview { branch: string; remote: string; target: string; head: string; base: string; commits: GitCommit[]; files: { path: string; status: string }[]; total: number; }
+export interface PushPreview { branch: string; remote: string; target: string; head: string; base: string; commits: GitCommit[]; files: { path: string; status: string }[]; total: number; indexTree?: string; stagedFiles?: GitFile[]; }

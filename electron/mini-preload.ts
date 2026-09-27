@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopState, MiniBarApi, MiniFrame } from '../shared/types';
 
 const api: MiniBarApi = {
+  repositories: context => ipcRenderer.invoke('gv:mini:repositories', context),
+  query: (repo, query) => ipcRenderer.invoke('gv:mini:query', repo, query),
+  action: (repo, action) => ipcRenderer.invoke('gv:mini:action', repo, action),
   desktopState: () => ipcRenderer.invoke('gv:desktop:state'),
   desktopCommand: command => ipcRenderer.invoke('gv:desktop:command', command),
   onDesktopState: listener => {

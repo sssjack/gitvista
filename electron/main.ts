@@ -9,7 +9,7 @@ import type { AppSettings, GitAction, RepoEntry } from '../shared/types';
 import { APP_THEMES, normalizeSettings, validatePreferences } from './settings-service';
 import { msg, msgf, setMessageLanguage } from '../shared/messages';
 import { canonicalRendererPath, createRendererUrlValidator } from './renderer-origin';
-import { DesktopCompanion } from './desktop-companion';
+import { COMPACT_WIDTH, DesktopCompanion, HEIGHT } from './desktop-companion';
 import { clearCredentials, credentialUrl, rememberCredentials, validateCredentials } from './git-credentials';
 import type { DesktopCommand, GitLogResult } from '../shared/types';
 import type { WorkspaceBatch, WorkspaceOverview, WorkspaceProgress, WorkspacePushPlan, WorkspaceScan } from '../shared/types';
@@ -219,13 +219,43 @@ function trustedSender(event: Electron.IpcMainInvokeEvent | Electron.IpcMainEven
 }
 function handle(channel: string, fn: (...args: any[]) => unknown) {
   ipcMain.handle(channel, async (event, ...args) => {
-    trustedSender(event, channel === 'gv:desktop:state' || channel === 'gv:desktop:command');
+    trustedSender(event, channel === 'gv:desktop:state' || channel === 'gv:desktop:command' || channel.startsWith('gv:mini:'));
     // 服务层与校验层都写中文原文；在这里统一翻译，渲染进程永远拿到当前语言的文本。
     try { return await fn(...args); }
     catch (error) { throw localized(error); }
   });
 }
 function installHandlers() {
+  const requireMiniRepo = (repo: unknown) => {
+    requireRepo(repo);
+    const current = settings.lastRepo;
+    if (!current || (repoKey(repo) !== repoKey(current) && !workspaceRepositories.get(repoKey(current))?.some(entry => repoKey(entry.path) === repoKey(repo)))) throw new Error('仓库已切换，请重新打开迷你面板。');
+  };
+  handle('gv:mini:repositories', async context => {
+    if (typeof context !== 'string' || !settings.lastRepo || repoKey(context) !== repoKey(settings.lastRepo)) throw new Error('仓库已切换，请重新打开迷你面板。');
+    if (approvedWorkspaces.has(repoKey(context))) return (await approvedScan(context)).repositories;
+    requireRepo(context);
+    return [{ path: context, name: path.basename(context), lastOpened: '' }];
+  });
+  handle('gv:mini:query', async (repo, query) => {
+    requireMiniRepo(repo);
+    if (!query || !['status', 'pushPreview', 'diff', 'commitFiles'].includes(query.type)) throw new Error('不支持的 Git 查询。');
+    return git.query(repo, query);
+  });
+  handle('gv:mini:action', async (repo, request) => {
+    requireMiniRepo(repo);
+    if (activeOperations || companion?.state().busy) throw new Error('Git 操作正在执行，请稍后重试。');
+    let action: GitAction;
+    if (request?.type === 'stage' || request?.type === 'unstage') {
+      if (!Array.isArray(request.paths) || !request.paths.length) throw new Error('请选择文件。');
+      action = { type: request.type, paths: request.paths };
+    } else if (request?.type === 'push') {
+      if (![request.expectedHead, request.expectedIndexTree].every(value => typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value)) || ![request.remote, request.ref, request.name].every(value => typeof value === 'string' && value.length > 0) || typeof request.commitStaged !== 'boolean') throw new Error('请先重新生成推送预览。');
+      action = { type: 'push', expectedHead: request.expectedHead, expectedIndexTree: request.expectedIndexTree, remote: request.remote, ref: request.ref, name: request.name, commitStaged: request.commitStaged, message: request.message };
+    } else throw new Error('无效的 Git 操作。');
+    try { return await withOperation(() => git.action(repo, action)); }
+    finally { void companion?.refresh(); window?.webContents.send('gv:repository:refresh'); }
+  });
   handle('gv:desktop:state', () => companion?.state());
   handle('gv:desktop:command', (command: DesktopCommand) => companion?.command(command));
   handle('gv:directory', () => chooseDirectory(msg('选择克隆到的父目录')));
@@ -387,7 +417,7 @@ async function createWindow() {
 }
 async function createMiniWindow() {
   miniWindow = new BrowserWindow({
-    width: 128, height: 40, frame: false, transparent: true, backgroundColor: '#00000000',
+    width: COMPACT_WIDTH, height: HEIGHT, frame: false, transparent: true, backgroundColor: '#00000000',
     thickFrame: false, hasShadow: false, resizable: false, maximizable: false,
     skipTaskbar: true, alwaysOnTop: true, show: false, title: 'GitVista Mini',
     webPreferences: { preload: path.join(__dirname, 'mini-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, spellcheck: false },

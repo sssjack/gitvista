@@ -439,6 +439,12 @@ async function fileDiff(repo: string, request: GitQuery): Promise<DiffResult> {
   const previous = request.oldPath ? await safePath(repo, request.oldPath) : undefined;
   const paths = [...new Set([selected, previous].filter((value): value is string => !!value))];
   const diffFlags = ['--no-ext-diff', '--no-textconv', '--find-renames', '--no-color', '--unified=5'];
+  if (request.indexTree !== undefined) {
+    if (!request.staged || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(request.indexTree)) throw new Error('暂存区预览版本不正确。');
+    const tree = (await output(repo, ['rev-parse', '--verify', '--end-of-options', `${request.indexTree}^{tree}`])).trim();
+    const base = await commitRef(repo, request.base, 'HEAD');
+    return diffResult(await output(repo, ['diff', ...diffFlags, base, tree, '--', ...paths]));
+  }
   if (request.base && request.ref) {
     const base = await output(repo, ['rev-parse', '--verify', '--end-of-options', `${ref(request.base)}^{tree}`]);
     const target = await commitRef(repo, request.ref);
@@ -647,6 +653,116 @@ async function runFiles(repo: string, args: string[], files: string[]): Promise<
   return run(repo, [...args, '--pathspec-from-file=-', '--pathspec-file-nul'], { input: pathspecInput(files) });
 }
 
+async function snapshotIndexTree(repo: string): Promise<string> {
+  const index = (await output(repo, ['rev-parse', '--path-format=absolute', '--git-path', 'index'])).trim();
+  await noSymlink(index);
+  const directory = await fs.mkdtemp(path.join(path.dirname(index), 'gitvista-preview-'));
+  try {
+    const copy = path.join(directory, 'index'), env = { GIT_INDEX_FILE: copy };
+    if (await exists(index)) await fs.copyFile(index, copy);
+    else await run(repo, ['read-tree', '--empty'], { env });
+    // write-tree may refresh the cache-tree extension. Keep even that metadata
+    // change out of the user's real index while capturing an immutable version.
+    return (await output(repo, ['write-tree'], { env })).trim();
+  } finally {
+    if (path.dirname(directory) === path.dirname(index) && path.basename(directory).startsWith('gitvista-preview-')) await fs.rm(directory, { recursive: true, force: true });
+  }
+}
+
+/** Commit selected index entries without replacing them with the working tree. */
+async function commitFiles(repo: string, request: GitAction, message: string): Promise<RunResult> {
+  if (request.commitFiles !== undefined && request.paths !== undefined) throw new Error('提交文件来源不正确。');
+  const selections = request.commitFiles ?? request.paths?.map(selected => ({ path: selected, source: 'workingTree' as const }));
+  if (selections !== undefined && (!Array.isArray(selections) || !selections.length || selections.length > 10_000
+    || selections.some(selected => !selected || !['index', 'workingTree'].includes(selected.source)))) throw new Error('提交文件来源不正确。');
+  const args = ['commit', '--file=-', ...(request.amend ? ['--amend'] : []), ...(request.signoff ? ['--signoff'] : [])];
+  if (selections === undefined && request.expectedIndexTree === undefined) return run(repo, args, { input: message, timeout: NETWORK_TIMEOUT });
+  if (selections && await operation(repo)) throw new Error('当前 Git 操作期间不能只提交部分文件，请取消文件勾选后提交整个暂存区。');
+  if (selections) await safePaths(repo, selections.map(selected => selected.path));
+
+  // Use Git's own lock so an IDE or terminal cannot change the real index during
+  // snapshot/commit/reconciliation. Never replace it with the partial index:
+  // unselected staged entries must survive, including on hook failure.
+  const index = (await output(repo, ['rev-parse', '--path-format=absolute', '--git-path', 'index'])).trim();
+  await noSymlink(index);
+  const lockPath = index + '.lock';
+  const lock = await fs.open(lockPath, 'wx').catch(error => {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('暂存区正被其他 Git 操作使用，请稍后重试。');
+    throw error;
+  });
+  let directory: string | undefined, lockClosed = false, installed = false, committedHead = '';
+  try {
+    directory = await fs.mkdtemp(path.join(path.dirname(index), 'gitvista-commit-'));
+    const originalIndex = path.join(directory, 'original-index');
+    const commitIndex = path.join(directory, 'commit-index');
+    const originalEnv = { GIT_INDEX_FILE: originalIndex }, commitEnv = { GIT_INDEX_FILE: commitIndex };
+    if (await exists(index)) await fs.copyFile(index, originalIndex);
+    else await run(repo, ['read-tree', '--empty'], { env: originalEnv });
+    const originalTree = (await output(repo, ['write-tree'], { env: originalEnv })).trim();
+    if (request.expectedIndexTree !== undefined && originalTree !== request.expectedIndexTree) throw new Error('暂存区内容已变化，请重新审阅后提交。');
+    const head = await hasHead(repo) ? await commitRef(repo, 'HEAD') : '';
+    if (request.expectedHead !== undefined && head !== request.expectedHead) throw new Error('待提交内容已变化，请重新审阅后提交。');
+    const matches = (file: string, scopes: string[]) => scopes.some(scope => file === scope || file.startsWith(scope + '/'));
+    const recordPath = (record: string) => record.slice(record.indexOf('\t') + 1);
+    const records = (value: string) => value.split('\0').filter(Boolean);
+    let selected: string[] = [];
+    if (selections) {
+      const fromIndex = selections.filter(file => file.source === 'index').map(file => file.path);
+      const fromWorktree = selections.filter(file => file.source === 'workingTree').map(file => file.path);
+      const indexPaths = fromIndex.length ? await selectedFiles(repo, { type: 'commit', paths: fromIndex }) : [];
+      const workingPaths = fromWorktree.length ? await selectedFiles(repo, { type: 'commit', paths: fromWorktree }) : [];
+      selected = [...new Set([...indexPaths, ...workingPaths])];
+      await run(repo, ['read-tree', ...(head ? [head] : ['--empty'])], { env: commitEnv });
+      if (indexPaths.length) {
+        const baseEntries = records(await output(repo, ['ls-files', '--stage', '-z'], { env: commitEnv }));
+        const removals = baseEntries.map(recordPath).filter(file => matches(file, indexPaths));
+        if (removals.length) await run(repo, ['update-index', '--force-remove', '-z', '--stdin'], { env: commitEnv, input: pathspecInput(removals) });
+        const entries = records(await output(repo, ['ls-files', '--stage', '-z'], { env: originalEnv })).filter(record => matches(recordPath(record), indexPaths));
+        if (entries.length) await run(repo, ['update-index', '-z', '--index-info'], { env: commitEnv, input: entries.join('\0') + '\0' });
+      }
+      // Explicit working-tree selection takes precedence for a path selected in
+      // both sections. Staged-only paths never go through git add.
+      if (workingPaths.length) await run(repo, ['add', '--all', '--pathspec-from-file=-', '--pathspec-file-nul'], { env: commitEnv, input: pathspecInput(workingPaths) });
+    } else {
+      await fs.copyFile(originalIndex, commitIndex);
+    }
+    if ((await hasHead(repo) ? await commitRef(repo, 'HEAD') : '') !== head) throw new Error('待提交内容已变化，请重新审阅后提交。');
+    const result = await run(repo, args, { input: message, timeout: NETWORK_TIMEOUT, env: commitEnv });
+    committedHead = await commitRef(repo, 'HEAD');
+    if (selections) {
+      // Include changes made by normal Git hooks. Read the committed tree, not
+      // the working files or a post-commit hook's possibly modified index.
+      const base = head || (await output(repo, ['hash-object', '-t', 'tree', '--stdin'], { input: '' })).trim();
+      const changed = records(await output(repo, ['diff', '--name-only', '-z', '--no-renames', base, committedHead, '--']));
+      const entries = records(await output(repo, ['ls-files', '--stage', '-z'], { env: originalEnv }));
+      const originalEntries = new Map(entries.map(record => [recordPath(record), record.slice(0, record.indexOf('\t')).replace(/ 0$/, '')]));
+      const baseEntries = new Map(records(await output(repo, ['ls-tree', '-r', '-z', '--full-tree', base])).map(record => [recordPath(record), record.slice(0, record.indexOf('\t')).replace(/^(\d+) \S+ /, '$1 ')]));
+      // A hook may also stage an unselected path. Preserve any pre-existing
+      // staged version of that path instead of silently overwriting it.
+      const affected = [...new Set([...selected, ...changed.filter(file => originalEntries.get(file) === baseEntries.get(file))])];
+      const removals = entries.map(recordPath).filter(file => matches(file, affected));
+      if (removals.length) await run(repo, ['update-index', '--force-remove', '-z', '--stdin'], { env: originalEnv, input: pathspecInput(removals) });
+      const committed = records(await output(repo, ['ls-tree', '-r', '-z', '--full-tree', committedHead]));
+      const replacements = committed.filter(record => matches(recordPath(record), affected)).map(record => record.replace(/^(\d+) \S+ /, '$1 '));
+      if (replacements.length) await run(repo, ['update-index', '-z', '--index-info'], { env: originalEnv, input: replacements.join('\0') + '\0' });
+    } else {
+      await run(repo, ['read-tree', committedHead], { env: originalEnv });
+    }
+    await lock.writeFile(await fs.readFile(originalIndex));
+    await lock.sync();
+    await lock.close(); lockClosed = true;
+    await fs.rename(lockPath, index); installed = true;
+    return result;
+  } catch (error) {
+    if (committedHead) throw new Error(`${msgf('本地提交 {0} 已创建，但暂存区同步失败，请检查仓库状态，不要重复提交。', committedHead)}\n${(error as Error).message}`);
+    throw error;
+  } finally {
+    if (!lockClosed) await lock.close();
+    if (!installed) await fs.unlink(lockPath).catch(() => {});
+    if (directory && path.dirname(directory) === path.dirname(index) && path.basename(directory).startsWith('gitvista-commit-')) await fs.rm(directory, { recursive: true, force: true });
+  }
+}
+
 async function externalDirectory(value: unknown): Promise<string> {
   const original = required(value, '目录', 8192);
   if (!path.isAbsolute(original)) throw new Error('请选择绝对目录路径。');
@@ -722,10 +838,7 @@ async function performAction(repo: string, request: GitAction): Promise<ActionRe
       }
       case 'commit': {
         const message = required(request.message, '提交说明', 50_000);
-        const selected = request.paths ? await selectedFiles(repo, request) : undefined;
-        if (selected && !selected.length) throw new Error('请选择要提交的文件。');
-        if (selected) await runFiles(repo, ['add', '--all'], selected);
-        result = await run(repo, ['commit', ...(selected ? ['--only'] : []), '--file=-', ...(request.amend ? ['--amend'] : []), ...(request.signoff ? ['--signoff'] : []), ...(selected ? ['--', ...selected] : [])], { input: message, timeout: NETWORK_TIMEOUT });
+        result = await commitFiles(repo, request, message);
         break;
       }
       case 'fetch': {
@@ -743,11 +856,38 @@ async function performAction(repo: string, request: GitAction): Promise<ActionRe
         break;
       }
       case 'push': {
+        if (request.commitStaged && (!request.expectedHead || !request.expectedIndexTree)) throw new Error('请先重新生成推送预览。');
         if (request.expectedHead) {
           const current = await pushPreview(repo, request.remote);
           if (current.head !== request.expectedHead || current.branch !== request.ref || current.target !== request.name) throw new Error('待推送内容已变化，请刷新推送预览后重试。');
-          if (!current.total) throw new Error('没有待推送的提交。');
-          result = await run(repo, ['push', '--set-upstream', current.remote, `refs/heads/${current.branch}:refs/heads/${current.target}`], { timeout: NETWORK_TIMEOUT });
+          if (request.expectedIndexTree !== undefined && current.indexTree !== request.expectedIndexTree) throw new Error('暂存区内容已变化，请重新审阅后提交。');
+          if (!current.total && !request.commitStaged) throw new Error('没有待推送的提交。');
+          let committed = '', commitOutput = '';
+          if (request.commitStaged) {
+            if (!current.stagedFiles?.length || await operation(repo)) throw new Error('待推送内容已变化，请刷新推送预览后重试。');
+            const response = await commitFiles(repo, { type: 'commit', expectedIndexTree: current.indexTree, expectedHead: current.head, signoff: request.signoff }, required(request.message, '提交说明', 50_000));
+            commitOutput = response.stdout + response.stderr;
+            committed = await commitRef(repo, 'HEAD');
+          }
+          try {
+            if (await commitRef(repo, 'HEAD') !== (committed || current.head)) throw new Error('待推送内容已变化，请刷新推送预览后重试。');
+            // Pin the source even if an external Git client advances the branch
+            // after validation or a pre-push hook creates another commit.
+            result = await run(repo, ['push', current.remote, `${committed || current.head}:refs/heads/${current.target}`], { timeout: NETWORK_TIMEOUT });
+            result.stdout = commitOutput + result.stdout;
+          } catch (error) {
+            if (committed) throw new Error(`${msgf('本地提交 {0} 已创建，但推送未完成。请重新生成预览后只推送该提交，不要重复提交。', committed)}\n${(error as Error).message}`);
+            throw error;
+          }
+          // A hash refspec cannot set branch tracking through --set-upstream.
+          // Preserve that behavior separately without treating a config failure
+          // as a failed network push (which has already succeeded).
+          try {
+            await run(repo, ['config', '--local', `branch.${current.branch}.remote`, current.remote]);
+            await run(repo, ['config', '--local', `branch.${current.branch}.merge`, `refs/heads/${current.target}`]);
+          } catch (error) {
+            result.stderr += `\n${msgf('推送已完成，但保存上游配置失败：{0}', (error as Error).message)}`;
+          }
           break;
         }
         const mode = selectedMode(request.mode, ['default', 'set-upstream', 'tags'], 'default');
@@ -1008,12 +1148,15 @@ async function pushPreview(repo: string, requestedRemote?: string): Promise<Push
   const remoteRef = await run(repo, ['rev-parse', '--verify', '--quiet', '--end-of-options', 'refs/remotes/' + remote + '/' + target], { allowCodes: [1,128] });
   const base = remoteRef.code === 0 ? remoteRef.stdout.trim() : (await output(repo, ['hash-object', '-t', 'tree', '--stdin'], { input: '' })).trim();
   const revisions = remoteRef.code === 0 ? [base + '..' + head] : [head];
-  const [log, names, count] = await Promise.all([
+  const [log, names, count, indexTree] = await Promise.all([
     output(repo, ['log', '--max-count=500', '--topo-order', '--format=' + COMMIT_FORMAT, ...revisions, '--']),
     output(repo, ['diff', '--name-status', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', base, head, '--']),
     output(repo, ['rev-list', '--count', ...revisions, '--']),
+    snapshotIndexTree(repo),
   ]);
-  return { branch, remote, target, head, base, commits: parseCommits(log), files: parseNameChanges(names), total: Number(count.trim()) };
+  const stagedChanges = parseNameChanges(await output(repo, ['diff', '--name-status', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', head, indexTree.trim(), '--']));
+  const stagedFiles = stagedChanges.map(file => ({ path: file.path, oldPath: file.oldPath, index: file.status[0], worktree: ' ', staged: true, unstaged: false, conflict: false }));
+  return { branch, remote, target, head, base, commits: parseCommits(log), files: parseNameChanges(names), total: Number(count.trim()), indexTree: indexTree.trim(), stagedFiles };
 }
 
 export async function repositoryHasCommits(directory: string): Promise<boolean> { return hasHead(await rootOf(directory)); }

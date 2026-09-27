@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowDownToLine, ArrowLeftRight, ArrowUp, ArrowUpRight, Check, CheckCheck, ChevronDown, ChevronRight, Circle, Clock3, Code2, Command, Copy, FileCode2, FileDiff, FilePlus2, FileWarning, Files, FolderGit2, FolderOpen, GitBranch, GitCommitHorizontal, GitCompareArrows, GitFork, GitMerge, History, Layers3, ListFilter, Loader2, Maximize2, Minus, Moon, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, Settings2, ShieldCheck, SquareTerminal, Sun, Tag, Trash2, Upload, X } from 'lucide-react';
-import type { AppLanguage, AppSettings, AppTheme, CommitDetail, DiffResult, GitAction, GitActionType, GitCommit, GitFile, GitQuery, GitSnapshot, GitWorkingState, GitTreeEntry, PushPreview, RepoEntry } from '../shared/types';
+import type { AppLanguage, AppSettings, AppTheme, CommitDetail, CommitFileSelection, DiffResult, GitAction, GitActionType, GitCommit, GitFile, GitQuery, GitSnapshot, GitWorkingState, GitTreeEntry, PushPreview, RepoEntry } from '../shared/types';
 import { DEFAULT_PREFERENCES } from '../shared/types';
 import SettingsDialog, { THEMES } from './components/SettingsDialog';
 import SelectMenu from './components/SelectMenu';
@@ -148,6 +148,7 @@ function Workbench({ onLanguageChange }: { onLanguageChange: (language: AppLangu
   const [result, setResult] = useState<{ title: string; text?: string; diff?: DiffResult; commits?: GitCommit[]; editPath?: string; repo?: string } | null>(null);
   const [cloneOpen, setCloneOpen] = useState(false); const [credentialsOpen, setCredentialsOpen] = useState(false);
   const [pushOpen, setPushOpen] = useState(false); const [pushPreview, setPushPreview] = useState<PushPreview | null>(null); const [pushLoading, setPushLoading] = useState(false); const [pushError, setPushError] = useState('');
+  const [pushStale, setPushStale] = useState(false);
   const pushFile = usePushFileDiff(); const pushDiff = pushFile.state;
   const [output, setOutput] = useState(''); const [notice, setNotice] = useState(''); const [more, setMore] = useState(false); const [limit, setLimit] = useState(250);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -217,7 +218,7 @@ function Workbench({ onLanguageChange }: { onLanguageChange: (language: AppLangu
     finally { if (id === refreshId.current) setLoading(false); }
   }, [api, limit]);
   useEffect(() => api.onRepositoryRefresh(() => { if (!mutationRef.current) void refresh(); }), [api, refresh]);
-  const selectRepo = useCallback(async (entry: RepoEntry) => { setError(''); setNotice(''); setResult(null); setTool(null); setCloneOpen(false); setSettingsOpen(false); ++amendRequestId.current; ++refreshId.current; setPushOpen(false); pushFile.clear(); setWorkspaceCommand(undefined); setWorkspaceEntry(entry.kind === 'workspace' ? entry : undefined); if (entry.kind === 'workspace') { setSidebar(true); setDockTab('repositories'); } repoRef.current = entry.kind === 'workspace' ? '' : entry.path; setRepo(repoRef.current); setAmend(false); setMessage(''); setSnapshot(null); setSelection(null); setDiff(null); setDetail(null); setLogCommand(undefined); setBranchFilter(''); setAllFiles(false); setTreeEntries([]); setCode(null); setSelected({ repo: entry.path, staged: new Set(), unstaged: new Set() }); await Promise.all([reloadSettings(), entry.kind === 'workspace' ? Promise.resolve() : refresh(entry.path, true)]); }, [refresh, reloadSettings]);
+  const selectRepo = useCallback(async (entry: RepoEntry) => { setError(''); setNotice(''); setResult(null); setTool(null); setCloneOpen(false); setSettingsOpen(false); ++amendRequestId.current; ++refreshId.current; setPushOpen(false); setPushLoading(false); setPushPreview(null); setPushStale(false); pushFile.clear(); setWorkspaceCommand(undefined); setWorkspaceEntry(entry.kind === 'workspace' ? entry : undefined); if (entry.kind === 'workspace') { setSidebar(true); setDockTab('repositories'); } repoRef.current = entry.kind === 'workspace' ? '' : entry.path; setRepo(repoRef.current); setAmend(false); setMessage(''); setSnapshot(null); setSelection(null); setDiff(null); setDetail(null); setLogCommand(undefined); setBranchFilter(''); setAllFiles(false); setTreeEntries([]); setCode(null); setSelected({ repo: entry.path, staged: new Set(), unstaged: new Set() }); await Promise.all([reloadSettings(), entry.kind === 'workspace' ? Promise.resolve() : refresh(entry.path, true)]); }, [refresh, reloadSettings]);
   const openRepo = useCallback(async (path?: string) => { try { const entry = await api.openRepository(path); if (entry) await selectRepo(entry); } catch (e) { setError(ErrorText(e)); } }, [api, selectRepo]);
   const openWorkspace = async (path?: string, pull = false) => { try { const entry = await api.openWorkspace(path); if (entry) { await selectRepo(entry); if (pull) requestWorkspace('pull'); } } catch (cause) { setError(ErrorText(cause)); } };
   const openWorkspaceRepository = async (entry: RepoEntry, hash?: string) => { try { const origin = workspaceSelection.current; const opened = await api.openRepository(entry.path, true); if (opened) { await selectRepo(opened); setWorkspaceReturn(origin); if (hash) setSelection({ kind: 'commit', hash }); } } catch (cause) { setError(ErrorText(cause)); } };
@@ -238,7 +239,7 @@ function Workbench({ onLanguageChange }: { onLanguageChange: (language: AppLangu
       return { kind: 'file', path: file.path, staged };
     });
   }, [api]);
-  const runAction = useCallback(async (action: GitAction, label = t('操作')) => {
+  const runAction = useCallback(async (action: GitAction, label = t('操作'), onError?: (reason: string) => void) => {
     if (!repoRef.current || mutationRef.current) return false;
     const actionRepo = repoRef.current; const lightweight = action.type === 'stage' || action.type === 'unstage';
     mutationRef.current = true; ++refreshId.current; setLoading(false); setBusy(label); setError('');
@@ -260,20 +261,24 @@ function Workbench({ onLanguageChange }: { onLanguageChange: (language: AppLangu
         try { if (lightweight) await refreshWorking(actionRepo); else { await refresh(actionRepo); setSelection(current => current ? { ...current } : null); } }
         catch (refreshError) { reason += ` · ${t('状态刷新失败')}：${ErrorText(refreshError)}`; }
         setError(reason);
+        onError?.(reason);
       }
       return false;
     } finally { mutationRef.current = false; setPendingStage(null); setBusy(''); }
   }, [api, refresh, refreshWorking, t]);
-  const commit = useCallback(async (paths?: string[]) => {
+  const commit = useCallback(async () => {
     if (!message.trim() || busy) return false;
     const draftId = amendRequestId.current; const commitRepo = repoRef.current;
-    const targets = paths?.length ? paths : undefined;
-    if (await runAction({ type: 'commit', message: message.trim(), amend, signoff, paths: targets }, amend ? t('修订提交') : t('提交'))) {
+    // 同一路径两侧均勾选时，以明确选择的工作区版本为准；无勾选直接提交整个索引。
+    const targets = new Map<string, CommitFileSelection>();
+    selectedPaths(true).forEach(path => targets.set(path, { path, source: 'index' }));
+    selectedPaths(false).forEach(path => targets.set(path, { path, source: 'workingTree' }));
+    if (await runAction({ type: 'commit', message: message.trim(), amend, signoff, ...(targets.size ? { commitFiles: [...targets.values()] } : {}) }, amend ? t('修订提交') : t('提交'))) {
       if (commitRepo === repoRef.current && draftId === amendRequestId.current) { setMessage(''); setAmend(false); clearSelected(); }
       return true;
     }
     return false;
-  }, [message, amend, signoff, busy, runAction, clearSelected]);
+  }, [message, amend, signoff, busy, selectedPaths, runAction, clearSelected, t]);
 
   useEffect(() => { let alive = true; api.settings().then(async s => { if (!alive) return; setSettings(s); setSplit(s.diffView === 'split'); if (s.lastRepo) { const entry = s.repos.find(entry => entry.path === s.lastRepo); if (entry?.kind === 'workspace') { setWorkspaceEntry(entry); setSidebar(true); setDockTab('repositories'); } else { repoRef.current = s.lastRepo; setRepo(s.lastRepo); await refresh(s.lastRepo, true); } } }).catch(e => setError(ErrorText(e))); return () => { alive = false; }; }, []);
   useEffect(() => { document.documentElement.dataset.theme = settings.theme; }, [settings.theme]);
@@ -305,8 +310,8 @@ function Workbench({ onLanguageChange }: { onLanguageChange: (language: AppLangu
    * 用户可以直接推送（则先提交暂存区），也可以先点开某个文件检查改动。
    */
   const openPush = useCallback(async () => {
-    if (!repoRef.current || busy) return;
-    setPushOpen(true); setPushLoading(true); setPushError(''); setPushPreview(null); pushFile.clear();
+    if (!repoRef.current || busy || mutationRef.current || pushLoading) return;
+    setPushOpen(true); setPushLoading(true); setPushError(''); setPushStale(false); setPushPreview(null); pushFile.clear();
     const target = repoRef.current;
     try {
       const preview = await api.query<PushPreview>(target, { type: 'pushPreview' });
@@ -316,19 +321,26 @@ function Workbench({ onLanguageChange }: { onLanguageChange: (language: AppLangu
     } finally {
       if (target === repoRef.current) setPushLoading(false);
     }
-  }, [api, busy]);
-  const viewPushFile = (file: GitFile) => pushFile.select({ repo, path: file.path, oldPath: file.oldPath, source: 'staged' });
-  /** 暂存区还有内容时，推送前先提交，避免把用户勾选的改动留在本地。 */
+  }, [api, busy, pushLoading]);
+  const pushStagedFiles = pushPreview?.stagedFiles || [];
+  const pushReady = !!(pushPreview?.head && pushPreview.branch && pushPreview.remote && pushPreview.target && pushPreview.indexTree && pushPreview.stagedFiles);
+  const viewPushFile = (file: GitFile) => pushFile.select({ repo, path: file.path, oldPath: file.oldPath, source: 'staged', indexTree: pushPreview?.indexTree, base: pushPreview?.head });
+  /** 预览校验、提交暂存版本与推送由后端在同一个写入队列任务中完成。 */
   const pushNow = useCallback(async () => {
-    if (!repoRef.current || busy) return;
-    const stagedNow = snapshot?.files.filter(file => file.staged) || [];
-    if (stagedNow.length) {
-      if (!message.trim()) { setPushError(t('推送前请填写提交说明')); return; }
-      const committed = await commit(stagedNow.map(file => file.path));
-      if (!committed) return;
+    if (!repoRef.current || busy || mutationRef.current || pushLoading || pushStale || !pushReady || !pushPreview) return;
+    const commitStaged = !!pushPreview.stagedFiles?.length;
+    if (commitStaged && !message.trim()) { setPushError(t('推送前请填写提交说明')); return; }
+    const draftId = amendRequestId.current; const pushRepo = repoRef.current;
+    setPushError('');
+    const pushed = await runAction({ type: 'push', expectedHead: pushPreview.head, remote: pushPreview.remote, ref: pushPreview.branch, name: pushPreview.target, expectedIndexTree: pushPreview.indexTree, commitStaged, message: message.trim(), signoff }, t('推送提交'), reason => setPushError(`${reason}\n${t('请重新读取推送内容后再执行；已完成的本地提交会保留。')}`));
+    if (pushRepo !== repoRef.current) return;
+    if (pushed) {
+      if (commitStaged && draftId === amendRequestId.current) { setMessage(''); setAmend(false); clearSelected(); }
+      setPushOpen(false); setPushPreview(null); pushFile.clear();
+    } else {
+      setPushStale(true);
     }
-    if (await runAction({ type: 'push' }, t('推送提交'))) { setPushOpen(false); setPushPreview(null); pushFile.clear(); }
-  }, [busy, snapshot, message, commit, runAction, t]);
+  }, [busy, pushLoading, pushStale, pushReady, pushPreview, message, signoff, runAction, clearSelected, t]);
   const files = snapshot?.files || []; const staged = files.filter(f => f.staged); const unstaged = files.filter(f => f.unstaged || f.conflict); const conflicts = files.filter(f => f.conflict);
   const selectableUnstaged = unstaged.filter(file => !file.conflict);
   const selectableStaged = staged.filter(file => !file.conflict);
@@ -346,13 +358,9 @@ function Workbench({ onLanguageChange }: { onLanguageChange: (language: AppLangu
       return { ...current, staged: keepStaged, unstaged: keepUnstaged };
     });
   }, [files, repo]);
-  const stagedSelected = selectedPaths(true); const unstagedSelected = selectedPaths(false);  // 提交范围：优先提交勾选的文件；没有勾选时回退到全部已暂存文件，
-  // 这样「什么都不选直接提交」仍然符合直觉，等价于提交暂存区。
-  const commitTargets = useMemo(
-    () => (selectedCount > 0 ? [...stagedSelected, ...unstagedSelected] : staged.map(file => file.path)),
-    // stagedSelected / unstagedSelected 每次渲染都是新数组，以内容作为依赖更稳定。
-    [selectedCount, stagedSelected.join('\0'), unstagedSelected.join('\0'), staged],
-  );
+  const stagedSelected = selectedPaths(true); const unstagedSelected = selectedPaths(false);
+  const commitTargets = [...new Set([...stagedSelected, ...unstagedSelected])];
+  const mixedSelection = stagedSelected.some(path => unstagedSelected.includes(path));
   const directoryFiles = useMemo(() => {
     if (!commitHash) return files.map(file => ({ path: file.path, status: workingFileStatus(file) }));
     if (detail?.commit.hash !== commitHash) return [];
@@ -427,7 +435,7 @@ function Workbench({ onLanguageChange }: { onLanguageChange: (language: AppLangu
         <button type="button" disabled={!!busy || !stagedSelected.length} onClick={() => void runAction({ type: 'unstage', paths: stagedSelected }, t('取消暂存选中'))}><Minus size={13} />{t('取消暂存')}{stagedSelected.length ? ` (${stagedSelected.length})` : ''}</button>
         {selectedCount > 0 && <button type="button" className="text-button" onClick={clearSelected}>{t('清除')}</button>}
       </div>
-      <ResizeHandle direction="horizontal" label={t('调整变更列表与提交区域高度')} onResize={delta => setFormHeight(current => clamp(clamp(current, 185, workspaceSize.height - 260) - delta, 185, workspaceSize.height - 260))} onReset={() => setFormHeight(245)} /><form className="commit-form" style={{ height: renderedForm }} onSubmit={e => { e.preventDefault(); void commit(commitTargets); }}><div className="commit-form-label"><span>{t('提交说明')}</span><span>{amend ? 'AMEND' : 'COMMIT'}</span></div><textarea className="commit-message" placeholder={t('这次改动做了什么？')} value={message} onChange={e => { ++amendRequestId.current; setMessage(e.target.value); }} required /><div className="commit-options"><label title={t('将改动加入上一个提交，会改写其哈希')}><input type="checkbox" checked={amend} onChange={e => { setAmend(e.target.checked); const id = ++amendRequestId.current; const requestRepo = repo; if (e.target.checked && !message) void api.query<CommitDetail>(requestRepo, { type: 'commit', ref: 'HEAD' }).then(d => { if (id === amendRequestId.current && requestRepo === repoRef.current) setMessage(d.body || d.commit.subject); }).catch(err => { if (id === amendRequestId.current && requestRepo === repoRef.current) setError(ErrorText(err)); }); }} />{t('修订上次提交')}</label><label title={t('添加 Signed-off-by')}><input type="checkbox" checked={signoff} onChange={e => setSignoff(e.target.checked)} />{t('签署')}</label></div><button className="commit-button" type="submit" disabled={!!busy || !message.trim() || (!commitTargets.length && !staged.length && !amend) || !!conflicts.length}><GitCommitHorizontal size={17} /><span>{amend ? t('修订提交') : commitTargets.length ? `${t('提交')} ${commitTargets.length} ${t('个文件')}` : t('提交')}</span><kbd>Ctrl ↵</kbd></button><div className="commit-tip"><ShieldCheck size={11} />{t('提交保存在本地，推送后与团队共享。')}</div></form></aside>}
+      <ResizeHandle direction="horizontal" label={t('调整变更列表与提交区域高度')} onResize={delta => setFormHeight(current => clamp(clamp(current, 185, workspaceSize.height - 260) - delta, 185, workspaceSize.height - 260))} onReset={() => setFormHeight(245)} /><form className="commit-form" style={{ height: renderedForm }} onSubmit={e => { e.preventDefault(); void commit(); }}><div className="commit-form-label"><span>{t('提交说明')}</span><span>{amend ? 'AMEND' : 'COMMIT'}</span></div><textarea className="commit-message" placeholder={t('这次改动做了什么？')} value={message} onChange={e => { ++amendRequestId.current; setMessage(e.target.value); }} required /><div className="commit-options"><label title={t('将改动加入上一个提交，会改写其哈希')}><input type="checkbox" checked={amend} onChange={e => { setAmend(e.target.checked); const id = ++amendRequestId.current; const requestRepo = repo; if (e.target.checked && !message) void api.query<CommitDetail>(requestRepo, { type: 'commit', ref: 'HEAD' }).then(d => { if (id === amendRequestId.current && requestRepo === repoRef.current) setMessage(d.body || d.commit.subject); }).catch(err => { if (id === amendRequestId.current && requestRepo === repoRef.current) setError(ErrorText(err)); }); }} />{t('修订上次提交')}</label><label title={t('添加 Signed-off-by')}><input type="checkbox" checked={signoff} onChange={e => setSignoff(e.target.checked)} />{t('签署')}</label></div><button className="commit-button" type="submit" disabled={!!busy || !message.trim() || (!commitTargets.length && !staged.length && !amend) || !!conflicts.length}><GitCommitHorizontal size={17} /><span>{amend ? t('修订提交') : commitTargets.length ? `${t('提交')} ${commitTargets.length} ${t('个文件')}` : t('提交')}</span><kbd>Ctrl ↵</kbd></button><div className="commit-tip" style={{ whiteSpace: 'normal', textAlign: 'center' }}><ShieldCheck size={11} />{mixedSelection ? t('同一文件两侧均勾选时，提交工作区版本。') : t('暂存选项提交暂存版本；未暂存选项提交工作区版本。')}</div></form></aside>}
       {sidebar && <ResizeHandle direction="vertical" label={t('调整左侧工具窗口宽度')} onResize={delta => { if (dockTab === 'repositories') setSideWidth(current => clamp(clamp(current, 200, workspaceSize.width - 49 - 660) + delta, 200, Math.min(420, workspaceSize.width - 49 - 660))); else setChangesWidth(current => clamp(clamp(current, 260, workspaceSize.width - 49 - 660) + delta, 260, Math.min(480, workspaceSize.width - 49 - 660))); }} onReset={() => dockTab === 'repositories' ? setSideWidth(240) : setChangesWidth(310)} />}
       <main className="main-workspace" ref={mainRef}>
         <section className="diff-panel"><div className="panel-heading"><div className="panel-tab"><FileDiff size={15} />{selection?.kind === 'file' ? t('工作区代码') : t('历史代码')}{detail && <span>{detail.files.length} {t('个文件')}</span>}</div><div className="panel-heading-actions"><div className="segmented view-toggle"><button className={!codeMode ? 'active' : ''} onClick={() => setCodeMode(false)}>{t("差异")}</button><button className={codeMode ? 'active' : ''} onClick={() => setCodeMode(true)}>{t("完整代码")}</button></div><div className="segmented"><button className={!split ? 'active' : ''} onClick={() => setSplit(false)} title={t("统一差异")}>{t("统一")}</button><button className={split ? 'active' : ''} onClick={() => setSplit(true)} title={t("并排差异")}>{t("并排")}</button></div><IconButton title={settings.wordWrap ? t('关闭代码自动换行') : t('开启代码自动换行')} className={settings.wordWrap ? "active" : ""} onClick={() => { const next = { ...settings, wordWrap: !settings.wordWrap }; setSettings(next); void api.updatePreferences(next).catch(e => setError(ErrorText(e))); }}><WrapText size={15} /></IconButton><IconButton title={t("文件历史")} disabled={!activePath} onClick={() => fileHistory.open({ repo, path: activePath!, ref: contentRef, oldPath: !contentRef ? files.find(file => file.path === activePath && (file.index === 'R' || file.worktree === 'R'))?.oldPath : undefined })}><History size={14} /></IconButton><IconButton title={t("逐行追溯")} disabled={!activePath} onClick={() => openTool('blame', { path: activePath || '' })}><Code2 size={14} /></IconButton></div></div><div className="diff-body"><><div className={`commit-files ${showPreview ? '' : 'without-preview'}`} style={{ width: showPreview ? renderedFiles : undefined }}><div className="file-directory-heading"><FolderOpen size={14} /><strong>{t("文件目录")}</strong><span>{selection?.kind === 'commit' ? selectedCommit?.short : snapshot.branch}</span></div>{detail && <><div className="tree-mode"><button className={!allFiles ? 'active' : ''} onClick={() => { setAllFiles(false); controlTree(false); }}>{t("改动文件")}</button><button className={allFiles ? 'active' : ''} onClick={() => { setAllFiles(true); setCodeMode(true); controlTree(true); }}>{t("全部文件")}</button></div><div className="commit-file-toolbar" aria-label={t("历史文件工具栏")}><IconButton title={t("显示差异 · Ctrl+D")} disabled={!activePath || diffLoading || !!busy} onClick={() => void openFileDiff()}><ArrowLeftRight size={14} /></IconButton><IconButton title={t("反向撤销所选历史文件改动")} disabled={!activePath || !!busy || allFiles} onClick={() => openTool('revertFile', { ref: detail.commit.hash, path: activePath || '' })}><Undo2 size={14} /></IconButton><IconButton title={t("截至此提交的文件历史")} disabled={!activePath || !!busy} onClick={() => fileHistory.open({ repo, path: activePath!, ref: detail.commit.hash })}><History size={14} /></IconButton><span className="file-toolbar-divider" /><IconButton title={t("展开全部目录")} onClick={() => controlTree(false)}><ChevronsUpDown size={14} /></IconButton><IconButton title={t("折叠全部目录")} onClick={() => controlTree(true)}><ChevronsDownUp size={14} /></IconButton><IconButton title={showCommitDetails ? t('隐藏提交详情') : t('显示提交详情')} className={showCommitDetails ? 'active' : ''} onClick={() => setShowCommitDetails(value => !value)}><Eye size={14} /></IconButton><IconButton title={showPreview ? t('隐藏差异预览') : t('显示差异预览')} onClick={() => setShowPreview(value => !value)}>{showPreview ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}</IconButton></div></>}{!detail && <div className="commit-file-toolbar" aria-label={t("工作区目录工具栏")}><IconButton title={t("展开全部目录")} onClick={() => controlTree(false)}><ChevronsUpDown size={14} /></IconButton><IconButton title={t("折叠全部目录")} onClick={() => controlTree(true)}><ChevronsDownUp size={14} /></IconButton></div>}<FileTree key={treeScope} files={directoryFiles} selected={activePath} control={effectiveTreeControl} onSelect={selectDirectoryFile} onContextMenu={(event, path) => fileHistory.context(event, { repo, path, ref: commitHash, oldPath: !commitHash ? files.find(file => file.path === path && (file.index === 'R' || file.worktree === 'R'))?.oldPath : undefined })} /></div>{showPreview && <ResizeHandle direction="vertical" label={t("调整文件目录与代码宽度")} onResize={delta => setFileWidth(current => clamp(clamp(current, 130, (mainRef.current?.clientWidth || 600) - 360) + delta, 130, Math.max(130, (mainRef.current?.clientWidth || 600) - 240)))} onReset={() => setFileWidth(245)} />}</>{(showPreview || !detail) && <div className="diff-content">{activePath && <div className="diff-filebar"><FileIcon path={activePath} size={14} /><span className="diff-file-path" title={activePath}>{activePath}</span>{deletedFile && codeMode && <span className="diff-stage-label">{t("删除前版本")}</span>}{selection?.kind === 'file' && <span className="diff-stage-label">{selection.staged ? t('已暂存') : t('未暂存')}</span>}<IconButton title={t("在文件管理器中显示")} onClick={() => void api.revealPath(repo, activePath).catch(e => setError(ErrorText(e)))}><ArrowUpRight size={12} /></IconButton></div>}{(codeMode ? codeLoading : diffLoading) ? <div className="inline-loading"><Loader2 size={18} className="spin" />{t(codeMode ? t('读取代码…') : t('读取差异…'))}</div> : noticeFile?.repo === repo && noticeFile.path === activePath ? <div className="soft-notice" role="status"><div className="soft-notice-icon"><FileWarning size={26} /></div><strong>{t('无法预览该文件')}</strong><p>{noticeFile.message}</p><div className="soft-notice-actions"><button type="button" onClick={() => void api.revealPath(repo, activePath).catch(() => setNotice(t('在文件管理器中显示')))}><ArrowUpRight size={13} />{t('在文件管理器中显示')}</button></div></div> : codeMode ? <CodeViewer text={code} path={activePath} /> : <DiffViewer diff={diff} path={activePath} split={split} wordWrap={settings.wordWrap} fontSize={settings.codeFontSize} />}</div>}</div></section>
@@ -439,19 +447,19 @@ function Workbench({ onLanguageChange }: { onLanguageChange: (language: AppLangu
         </div> : <button className="reopen-history" title={t('提交历史')} onClick={() => setHistoryOpen(true)}><History size={15} /><span>{t('提交历史')}</span></button>}
       </main>
     </div>}
-    <footer className="statusbar"><span className={busy || loading ? 'status-working' : 'status-ready'}>{busy || loading ? <Loader2 size={12} className="spin" /> : <span className="live-dot" />}{busy ? `${busy}…` : loading ? t('正在刷新仓库…') : t('就绪')}</span>{snapshot && <span><GitBranch size={12} />{snapshot.branch}</span>}<div className="statusbar-spacer" />{notice && <span className="status-notice"><Check size={12} />{notice}</span>}<button onClick={() => setResult({ title: t('操作输出'), text: output || t('尚未执行 Git 写入操作。') })}><SquareTerminal size={12} />{t('操作输出')}</button><span className="git-version">{snapshot?.gitVersion || 'GitVista 0.9.2'}</span></footer>
+    <footer className="statusbar"><span className={busy || loading ? 'status-working' : 'status-ready'}>{busy || loading ? <Loader2 size={12} className="spin" /> : <span className="live-dot" />}{busy ? `${busy}…` : loading ? t('正在刷新仓库…') : t('就绪')}</span>{snapshot && <span><GitBranch size={12} />{snapshot.branch}</span>}<div className="statusbar-spacer" />{notice && <span className="status-notice"><Check size={12} />{notice}</span>}<button onClick={() => setResult({ title: t('操作输出'), text: output || t('尚未执行 Git 写入操作。') })}><SquareTerminal size={12} />{t('操作输出')}</button><span className="git-version">{snapshot?.gitVersion || 'GitVista 0.9.3'}</span></footer>
     {settingsOpen && <SettingsDialog key={repo} settings={settings} repo={repo} onClose={() => setSettingsOpen(false)} onSaved={saved => { setSettings(saved); setSplit(saved.diffView === 'split'); onLanguageChange(saved.language); setNotice(t('应用设置已保存')); if (repoRef.current) void refresh(); }} />}
     {tool && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setTool(null); }}><div className="tool-modal" role="dialog" aria-modal="true" aria-label={t('Git 工具箱')}><div className="tool-sidebar"><div className="tool-sidebar-title"><Command size={18} />{t('Git 工具箱')}</div><div className="tool-search"><Search size={14} /><input autoFocus value={toolSearch} placeholder={t('查找操作…')} onChange={e => setToolSearch(e.target.value)} /></div><div className="tool-list">{[...new Set(TOOLS.map(spec => spec.group))].map(group => { const items = TOOLS.filter(spec => spec.group === group && `${t(spec.label)}${t(spec.hint)}`.includes(toolSearch)); return items.length ? <div key={group}><div className="tool-group">{t(group)}</div>{items.map(spec => <button key={spec.id} className={tool === spec.id ? 'active' : ''} onClick={() => { const defaults: Record<string, string | boolean> = {}; spec.fields.forEach(f => { if (f.type === 'select') defaults[f.key] = f.options![0]; }); if (spec.id === 'pull') defaults.mode = settings.pullStrategy; setToolValues(old => ({ ...defaults, ...Object.fromEntries(Object.entries(old).filter(([key]) => spec.fields.some(f => f.key === key && f.type !== 'select'))) })); setTool(spec.id); }}>{t(spec.label)}<ChevronRight size={12} /></button>)}</div> : null; })}</div></div><form className="tool-main" onSubmit={executeTool}><div className="modal-top"><IconButton title={t('关闭')} disabled={!!busy} onClick={() => setTool(null)}><X size={19} /></IconButton></div><h2>{t(TOOLS.find(spec => spec.id === tool)!.label)}</h2><p className="tool-hint">{t(TOOLS.find(spec => spec.id === tool)!.hint)}</p><div className="tool-repo"><FolderGit2 size={13} />{snapshot?.name}<ChevronRight size={12} /><GitBranch size={12} />{snapshot?.branch}</div><div className="tool-fields">{TOOLS.find(spec => spec.id === tool)?.fields.map(f => <label className={f.type === 'check' ? 'checkbox-field' : 'form-field'} key={f.key}>{f.type !== 'check' && <span>{t(f.label)}{f.required && <i> *</i>}</span>}{f.type === 'check' ? <><input type="checkbox" checked={!!toolValues[f.key]} onChange={e => setToolValues(v => ({ ...v, [f.key]: e.target.checked }))} />{t(f.label)}</> : f.type === 'select' ? <SelectMenu label={t(f.label)} value={String(toolValues[f.key] || f.options![0])} disabled={!!busy} onChange={value => setToolValues(v => ({ ...v, [f.key]: value }))} options={f.options!.map(value => ({ value, label: value }))} /> : f.type === 'area' ? <textarea value={String(toolValues[f.key] || '')} placeholder={f.placeholder && t(f.placeholder)} required={f.required} onChange={e => setToolValues(v => ({ ...v, [f.key]: e.target.value }))} /> : <input value={String(toolValues[f.key] || '')} placeholder={f.placeholder && t(f.placeholder)} required={f.required} onChange={e => setToolValues(v => ({ ...v, [f.key]: e.target.value }))} spellCheck={false} />}</label>)}</div>{error && <div className="modal-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" disabled={!!busy} onClick={() => setTool(null)}>{t('取消')}</button><button className={TOOLS.find(spec => spec.id === tool)?.danger ? 'danger-button' : 'primary-button'} disabled={!!busy || !repo}>{busy ? <Loader2 size={15} className="spin" /> : <ArrowUpRight size={15} />}{TOOLS.find(t => t.id === tool)?.query ? t('查看') : t('执行操作')}</button></div></form></div></div>}
     {pushOpen && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) { setPushOpen(false); pushFile.clear(); } }}><div className="push-modal" inert={pushDiff?.open || undefined} role="dialog" aria-modal="true" aria-label={t('推送预览')}>
-      <div className="push-heading"><div><ArrowUp size={17} /><strong>{t('推送预览')}</strong>{pushPreview && <span className="push-target">{pushPreview.remote}/{pushPreview.target}</span>}</div><IconButton title={t('重新读取推送内容')} disabled={pushLoading} onClick={() => void openPush()}><RefreshCw size={15} className={pushLoading ? 'spin' : ''} /></IconButton><IconButton title={t('关闭')} disabled={!!busy} onClick={() => { setPushOpen(false); pushFile.clear(); }}><X size={18} /></IconButton></div>
+      <div className="push-heading"><div><ArrowUp size={17} /><strong>{t('推送预览')}</strong>{pushPreview && <span className="push-target">{pushPreview.remote}/{pushPreview.target}</span>}</div><IconButton title={t('重新读取推送内容')} disabled={pushLoading || !!busy} onClick={() => void openPush()}><RefreshCw size={15} className={pushLoading ? 'spin' : ''} /></IconButton><IconButton title={t('关闭')} disabled={!!busy} onClick={() => { setPushOpen(false); pushFile.clear(); }}><X size={18} /></IconButton></div>
       <div className="push-body">
         <div className="push-list">
           {pushLoading && !pushPreview ? <div className="inline-loading"><Loader2 size={17} className="spin" />{t('读取差异…')}</div> : <>
             <div className="push-section-title"><GitCommitHorizontal size={13} />{t('待推送提交')}<span>{pushPreview?.commits.length || 0}</span></div>
             <div className="push-commits">{pushPreview?.commits.length ? pushPreview.commits.map(commit => <PushCommitFiles key={`${repo}:${commit.hash}`} repo={repo} commit={commit} disabled={!!busy} onFile={pushFile.select} />) : <div className="change-empty">{t('没有待推送的提交')}</div>}</div>
-            <div className="push-section-title"><Files size={13} />{t('暂存区文件')}<span>{staged.length}</span></div>
-            <div className="push-files">{staged.length ? staged.map(file => <button type="button" key={file.path} className={`push-file ${pushDiff?.source === 'staged' && pushDiff.path === file.path ? 'active' : ''}`} title={file.path} onClick={() => viewPushFile(file)}><FileIcon path={file.path} size={14} /><span>{file.path}</span><i className={fileStatusClass(workingFileStatus(file))}>{workingFileStatus(file)}</i></button>) : <div className="change-empty">{t('没有暂存文件')}</div>}</div>
-            <p className="push-hint">{t('点击提交下的文件查看该次提交的差异；暂存区文件显示已暂存改动。')}</p>
+            <div className="push-section-title"><Files size={13} />{t('暂存区文件')}<span>{pushStagedFiles.length}</span></div>
+            <div className="push-files">{pushStagedFiles.length ? pushStagedFiles.map(file => <button type="button" key={file.path} className={`push-file ${pushDiff?.source === 'staged' && pushDiff.path === file.path ? 'active' : ''}`} disabled={!!busy || !pushReady} title={file.path} onClick={() => viewPushFile(file)}><FileIcon path={file.path} size={14} /><span>{file.path}</span><i className={fileStatusClass(workingFileStatus(file, true))}>{workingFileStatus(file, true)}</i></button>) : <div className="change-empty">{t('没有暂存文件')}</div>}</div>
+            <p className="push-hint">{t('点击提交下的文件查看该次提交的差异；暂存区文件显示预览时的暂存版本。')}</p>
           </>}
         </div>
         <div className="push-preview-pane">
@@ -459,8 +467,9 @@ function Workbench({ onLanguageChange }: { onLanguageChange: (language: AppLangu
 
         </div>
       </div>
-      {pushError && <div className="modal-error">{pushError}</div>}
-      <div className="modal-actions"><button type="button" className="secondary-button" disabled={!!busy} onClick={() => { setPushOpen(false); pushFile.clear(); }}>{t('取消推送')}</button><button type="button" className="primary-button" disabled={!!busy || pushLoading || (!pushPreview?.total && !staged.length)} onClick={() => void pushNow()}>{busy ? <Loader2 size={15} className="spin" /> : <ArrowUp size={15} />}{staged.length ? t('提交并推送') : t('推送这一份')}</button></div>
+      {!!pushStagedFiles.length && <label className="form-field" style={{ margin: '12px 16px' }}><span>{t('提交说明')}</span><textarea rows={2} maxLength={50000} style={{ minHeight: 60 }} disabled={!!busy} value={message} placeholder={t('这次改动做了什么？')} onChange={event => { ++amendRequestId.current; setMessage(event.target.value); }} /></label>}
+      {pushError && <div className="modal-error" role="alert">{pushError}</div>}
+      <div className="modal-actions"><button type="button" className="secondary-button" disabled={!!busy} onClick={() => { setPushOpen(false); pushFile.clear(); }}>{t('取消推送')}</button><button type="button" className="primary-button" disabled={!!busy || pushLoading || pushStale || !pushReady || (!pushPreview?.total && !pushStagedFiles.length) || (!!pushStagedFiles.length && !message.trim())} onClick={() => void pushNow()}>{busy ? <Loader2 size={15} className="spin" /> : <ArrowUp size={15} />}{pushStagedFiles.length ? t('提交并推送') : t('推送这一份')}</button></div>
     </div></div>}
     {pushOpen && pushDiff?.open && <PushFileDiff state={pushDiff} preferences={settings} returnFocus={pushFile.opener.current} onClose={pushFile.close} onRetry={() => pushFile.select(pushDiff)} />}
     {cloneOpen && <RepositoryDialog onClose={() => setCloneOpen(false)} onCloned={selectRepo} onBusy={setBusy} />}
