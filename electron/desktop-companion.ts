@@ -82,7 +82,6 @@ export class DesktopCompanion {
     this.tray.on('click', () => this.restore());
     this.tray.on('double-click', () => this.restore());
     this.tray.on('right-click', () => this.publish());
-    this.mainWindow.on('minimize', this.hide);
     this.window.on('will-move', this.beginMove);
     this.window.on('moved', this.endMove);
     this.ticker = setInterval(() => this.tick(), 50);
@@ -94,7 +93,7 @@ export class DesktopCompanion {
   }
   state(): DesktopState {
     const settings = this.dependencies.settings();
-    return { mode: this.mode, panel: this.panel, collapsed: this.collapsed, expanded: this.expanded, direction: this.direction, edge: this.edge, frame: this.frame, repo: settings.lastRepo || '', commits: settings.lastRepo === this.repo ? this.commits : [], busy: this.working || this.dependencies.busy(), error: this.error, language: settings.language, theme: settings.theme };
+    return { mode: this.mode, panel: this.panel, collapsed: this.collapsed, expanded: this.expanded, direction: this.direction, edge: this.edge, frame: this.frame, repo: settings.lastRepo || '', commits: settings.lastRepo === this.repo ? this.commits : [], busy: this.working || this.dependencies.busy(), error: this.error, language: settings.language, theme: settings.theme, uiFontSize: settings.uiFontSize };
   }
   private t = (text: string) => translate(this.dependencies.settings().language, text);
   publish(): void {
@@ -317,7 +316,6 @@ export class DesktopCompanion {
   dispose(): void {
     clearInterval(this.ticker); clearInterval(this.refresher);
     this.stopAnimation();
-    this.mainWindow.removeListener('minimize', this.hide);
     this.window.removeListener('will-move', this.beginMove);
     this.window.removeListener('moved', this.endMove);
     screen.removeListener('display-metrics-changed', this.reposition);

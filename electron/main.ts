@@ -5,7 +5,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import * as git from './git-service';
 import { DEFAULT_PREFERENCES } from '../shared/types';
-import type { AppSettings, GitAction, RepoEntry } from '../shared/types';
+import type { AppSettings, CommitFileSelection, GitAction, GitWorkingState, RepoEntry } from '../shared/types';
 import { APP_THEMES, normalizeSettings, validatePreferences } from './settings-service';
 import { msg, msgf, setMessageLanguage } from '../shared/messages';
 import { canonicalRendererPath, createRendererUrlValidator } from './renderer-origin';
@@ -38,6 +38,7 @@ let activeOperations = 0;
 let executableChangeInProgress = false;
 let pendingSettingsWrites = 0;
 let closeNoticeOpen = false;
+let closeChoiceOpen = false;
 let companion: DesktopCompanion | undefined;
 let quitting = false;
 const approvedRepos = new Set<string>();
@@ -71,7 +72,41 @@ async function persist(next: AppSettings) {
   await fs.rename(`${settingsPath}.tmp`, settingsPath);
   settings = next;
   applyLanguage(next.language);
+  const { repos: _repos, lastRepo: _lastRepo, ...preferences } = next;
+  if (window && !window.isDestroyed()) window.webContents.send('gv:preferences:changed', preferences);
   companion?.publish();
+}
+function showOperationCloseNotice(): void {
+  if (closeNoticeOpen || !window || window.isDestroyed()) return;
+  closeNoticeOpen = true;
+  void dialog.showMessageBox(window, { type: 'info', title: msg('操作正在执行'), message: msg('请等待当前 Git 操作或设置保存完成后关闭窗口。'), buttons: [msg('继续等待')] }).finally(() => { closeNoticeOpen = false; });
+}
+async function requestWindowClose(): Promise<void> {
+  if (closeChoiceOpen || !window || window.isDestroyed()) return;
+  closeChoiceOpen = true;
+  try {
+    let behavior = settings.closeBehavior;
+    if (behavior === 'ask') {
+      const choice = await dialog.showMessageBox(window, {
+        type: 'question', title: msg('关闭 GitVista'), message: msg('关闭窗口时要执行什么操作？'),
+        detail: msg('隐藏到系统托盘后，GitVista 将继续运行，可从屏幕右下角托盘重新打开。你可以随时在设置中更改此选择。'),
+        buttons: [msg('退出软件'), msg('隐藏到系统托盘'), msg('取消')], defaultId: 1, cancelId: 2, noLink: true,
+        checkboxLabel: msg('以后不再提示'), checkboxChecked: false,
+      });
+      if (choice.response !== 0 && choice.response !== 1) return;
+      behavior = choice.response === 0 ? 'quit' : 'tray';
+      if (choice.checkboxChecked) {
+        const closeBehavior = behavior;
+        await queueSettings(() => persist({ ...settings, closeBehavior }));
+      }
+    }
+    if (!window || window.isDestroyed() || quitting) return;
+    if (behavior === 'quit') app.quit();
+    else if (companion) companion.hide();
+    else window.hide();
+  } catch (error) {
+    if (window && !window.isDestroyed()) await dialog.showMessageBox(window, { type: 'error', title: msg('无法保存关闭偏好'), message: localized(error).message, buttons: [msg('取消')] });
+  } finally { closeChoiceOpen = false; }
 }
 async function registerRepo(value: string): Promise<RepoEntry> {
   const entry = await git.openRepository(value);
@@ -246,14 +281,29 @@ function installHandlers() {
     requireMiniRepo(repo);
     if (activeOperations || companion?.state().busy) throw new Error('Git 操作正在执行，请稍后重试。');
     let action: GitAction;
-    if (request?.type === 'stage' || request?.type === 'unstage') {
-      if (!Array.isArray(request.paths) || !request.paths.length) throw new Error('请选择文件。');
-      action = { type: request.type, paths: request.paths };
+    if (request?.type === 'commit') {
+      if (!Array.isArray(request.commitFiles) || !request.commitFiles.length) throw new Error('请选择文件。');
+      if (request.commitFiles.length > 10_000 || request.commitFiles.some((file: unknown) => {
+        const selected = file as Partial<CommitFileSelection> | null;
+        return !selected || typeof selected.path !== 'string' || !selected.path || !['index', 'workingTree'].includes(selected.source || '');
+      })) throw new Error('提交文件来源不正确。');
+      if (typeof request.message !== 'string' || !request.message.trim() || request.message.length > 50_000 || request.message.includes('\0')) throw new Error('提交说明为空或格式不正确。');
+      action = { type: 'commit', commitFiles: request.commitFiles.map((file: CommitFileSelection) => ({ path: file.path, source: file.source })), message: request.message };
     } else if (request?.type === 'push') {
       if (![request.expectedHead, request.expectedIndexTree].every(value => typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value)) || ![request.remote, request.ref, request.name].every(value => typeof value === 'string' && value.length > 0) || typeof request.commitStaged !== 'boolean') throw new Error('请先重新生成推送预览。');
       action = { type: 'push', expectedHead: request.expectedHead, expectedIndexTree: request.expectedIndexTree, remote: request.remote, ref: request.ref, name: request.name, commitStaged: request.commitStaged, message: request.message };
     } else throw new Error('无效的 Git 操作。');
-    try { return await withOperation(() => git.action(repo, action)); }
+    try {
+      return await withOperation(async () => {
+        if (action.type === 'commit') {
+          const current = await git.query(repo, { type: 'status' }) as GitWorkingState;
+          if (current.operation) throw new Error('请先完成当前仓库中的 Git 操作。');
+          if (current.files.some(file => file.conflict)) throw new Error('仓库中仍有冲突，请先解决冲突。');
+          if (action.commitFiles!.some(selected => !current.files.some(file => file.path === selected.path && (selected.source === 'index' ? file.staged : file.unstaged)))) throw new Error('待提交内容已变化，请重新审阅后提交。');
+        }
+        return git.action(repo, action);
+      });
+    }
     finally { void companion?.refresh(); window?.webContents.send('gv:repository:refresh'); }
   });
   handle('gv:desktop:state', () => companion?.state());
@@ -405,12 +455,11 @@ async function createWindow() {
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   window.on('close', event => {
-    if (!quitting && companion) { event.preventDefault(); companion.hide(); return; }
+    if (!quitting) { event.preventDefault(); void requestWindowClose(); return; }
     if (activeOperations === 0 && !executableChangeInProgress && pendingSettingsWrites === 0) return;
     event.preventDefault();
-    if (closeNoticeOpen) return;
-    closeNoticeOpen = true;
-    void dialog.showMessageBox(window!, { type: 'info', title: msg('操作正在执行'), message: msg('请等待当前 Git 操作或设置保存完成后关闭窗口。'), buttons: [msg('继续等待')] }).finally(() => { closeNoticeOpen = false; });
+    quitting = false;
+    showOperationCloseNotice();
   });
   window.on('closed', () => { window = null; });
   if (devUrl) await window.loadURL(devUrl); else await window.loadFile(rendererFile);
@@ -436,10 +485,7 @@ else {
   app.on('before-quit', event => {
     if (activeOperations || pendingSettingsWrites || executableChangeInProgress) {
       event.preventDefault(); quitting = false;
-      if (!closeNoticeOpen && window) {
-        closeNoticeOpen = true;
-        void dialog.showMessageBox(window, { type: 'info', title: msg('操作正在执行'), message: msg('请等待当前 Git 操作或设置保存完成后关闭窗口。') }).finally(() => { closeNoticeOpen = false; });
-      }
+      showOperationCloseNotice();
       return;
     }
     quitting = true;

@@ -5,5 +5,5 @@
 .repository-path { display: flex; gap: 8px; }
 .repository-path input { flex: 1; min-width: 0; }
 .repository-auth-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.repository-destination { font-size: 12px; overflow-wrap: anywhere; color: var(--text-muted); }
+.repository-destination { font-size: calc(12px * var(--ui-font-scale, 1)); overflow-wrap: anywhere; color: var(--text-muted); }
 .repository-destination code { display: block; padding-top: 6px; color: var(--text); }

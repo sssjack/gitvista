@@ -26,7 +26,7 @@
 .commit-details-slot>.commit-information{max-height:none;height:100%;min-height:0;overflow:auto}
 .commit-files>.file-tree{min-height:45px}
 .commit-file-toolbar{flex-wrap:wrap}
-.change-group .staging-placeholder{padding:12px 8px;margin:4px 12px;font-size:11px}
+.change-group .staging-placeholder{padding:12px 8px;margin:4px 12px;font-size:calc(11px * var(--ui-font-scale, 1))}
 @media(max-width:1250px){.toolbar{gap:5px}.toolbar>.toolbar-divider{margin:0 2px}.theme-control select{max-width:82px}.sync-actions>button{padding:6px}.toolbar .repo-control{min-width:175px}}
 
 /* Code stays above the history dock; auxiliary tools share the left rail. */
@@ -41,13 +41,13 @@
 .history-details > .commit-information { flex:1; min-height:0; max-height:none; border-top:0; overflow:auto; margin:0; padding:12px 14px }
 .history-details .commit-information-heading { align-items:flex-start }
 .history-details .commit-information-heading > strong { line-height:1.65 }
-.history-details .empty-state { font-size:12px; padding:14px }
+.history-details .empty-state { font-size:calc(12px * var(--ui-font-scale, 1)); padding:14px }
 .history-details .empty-state p { max-width:230px }
 .history-dock .log-filter-toolbar { flex-wrap:wrap }
 .history-dock .history-search { flex:1; min-width:120px }
-.file-directory-heading { display:flex; align-items:center; gap:7px; flex-shrink:0; height:34px; padding:0 11px; border-bottom:1px solid var(--border-soft); color:var(--text-muted); font-size:11px }
+.file-directory-heading { display:flex; align-items:center; gap:7px; flex-shrink:0; height:34px; padding:0 11px; border-bottom:1px solid var(--border-soft); color:var(--text-muted); font-size:calc(11px * var(--ui-font-scale, 1)) }
 .file-directory-heading > strong { color:var(--text); font-weight:600 }
-.file-directory-heading > span { margin-left:auto; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-family:var(--mono); font-size:10px }
+.file-directory-heading > span { margin-left:auto; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-family:var(--mono); font-size:calc(10px * var(--ui-font-scale, 1)) }
 .commit-files { border-right:0 }
 .file-tree-contents { min-width:100%; width:max-content }
 .file-tree-contents .tree-folder > span,.file-tree-contents .tree-file > span { flex:1 0 auto; overflow:visible; text-overflow:clip }
@@ -57,10 +57,10 @@
 .diff-body > .diff-content { min-width:0 }
 .rail-divider { width:22px; height:1px; background:var(--border); margin:5px 0 }
 .reopen-details { flex-shrink:0; display:flex; align-items:center; gap:9px; padding:12px 8px; flex-direction:column; color:var(--text-muted); border-left:1px solid var(--border); background:var(--panel-soft) }
-.reopen-details span { writing-mode:vertical-rl; letter-spacing:3px; font-size:11px }
+.reopen-details span { writing-mode:vertical-rl; letter-spacing:3px; font-size:calc(11px * var(--ui-font-scale, 1)) }
 .reopen-details:hover { color:var(--accent); background:var(--active) }
 /* 历史面板收回后留一条窄边，点一下即可重新展开。 */
-.reopen-history { flex-shrink:0; display:flex; align-items:center; justify-content:center; gap:8px; padding:7px 0; font-size:11px; color:var(--text-dim); border-top:1px solid var(--border); background:var(--panel-soft) }
+.reopen-history { flex-shrink:0; display:flex; align-items:center; justify-content:center; gap:8px; padding:7px 0; font-size:calc(11px * var(--ui-font-scale, 1)); color:var(--text-dim); border-top:1px solid var(--border); background:var(--panel-soft) }
 .reopen-history:hover { color:var(--accent); background:var(--hover) }
 .changes-panel .panel-heading { gap:4px }
 .changes-panel .panel-tab { min-width:0 }
@@ -75,14 +75,14 @@
 /* Consistent pickers across toolbar, log filters and forms. */
 .toolbar .select-menu-trigger { background: transparent; border-color: transparent; min-height: 30px; padding: 4px 7px; }
 .toolbar .select-menu-trigger:hover, .toolbar .select-menu-trigger[aria-expanded="true"] { background: var(--hover); border-color: var(--border); }
-.repo-control .repo-picker { width: 180px; min-width: 90px; font-size: 13px; font-weight: 600; }
-.branch-control .branch-picker { width: 170px; min-width: 75px; font-size: 12px; }
-.theme-control .theme-picker { width: 108px; min-width: 88px; font-size: 12px; }
-.log-select .select-menu-trigger { width: 100%; min-width: 0; height: 29px; min-height: 29px; font-size: 12px; background: var(--panel-soft); }
+.repo-control .repo-picker { width: 180px; min-width: 90px; font-size: calc(13px * var(--ui-font-scale, 1)); font-weight: 600; }
+.branch-control .branch-picker { width: 170px; min-width: 75px; font-size: calc(12px * var(--ui-font-scale, 1)); }
+.theme-control .theme-picker { width: 108px; min-width: 88px; font-size: calc(12px * var(--ui-font-scale, 1)); }
+.log-select .select-menu-trigger { width: 100%; min-width: 0; height: 29px; min-height: 29px; font-size: calc(12px * var(--ui-font-scale, 1)); background: var(--panel-soft); }
 .form-field > .select-menu { width: 100%; }
-.form-field > .select-menu .select-menu-trigger { min-height: 36px; font-size: 12px; }
+.form-field > .select-menu .select-menu-trigger { min-height: 36px; font-size: calc(12px * var(--ui-font-scale, 1)); }
 .log-select > .select-menu { width: 100%; min-width: 0; }
-.repo-control .repo-picker .select-menu-trigger { font-size: 13px; font-weight: 600; }
+.repo-control .repo-picker .select-menu-trigger { font-size: calc(13px * var(--ui-font-scale, 1)); font-weight: 600; }
 .select-menu-option-icon:has(.theme-option-swatch) { flex-basis: 30px; width: 30px; min-width: 30px; }
 .theme-option-swatch { width: 28px; height: 24px; flex-shrink: 0; display: grid; grid-template-columns: 7px 1fr; grid-template-rows: 1fr 1fr; gap: 3px; padding: 4px; border: 1px solid; border-radius: 5px; }
 .theme-option-swatch > i { border-radius: 2px; }
@@ -92,7 +92,7 @@
 /* Language remains visible even when the repository toolbar is crowded. */
 .titlebar-language { display: flex; align-items: center; gap: 5px; margin-left: auto; -webkit-app-region: no-drag; color: var(--text-muted); }
 .titlebar-language .language-picker { width: 100px; }
-.titlebar-language .select-trigger { min-height: 26px; height: 26px; font-size: 11px; border-color: transparent; background: transparent; }
+.titlebar-language .select-trigger { min-height: 26px; height: 26px; font-size: calc(11px * var(--ui-font-scale, 1)); border-color: transparent; background: transparent; }
 .window-controls { -webkit-app-region: no-drag; }
 
 .workbench-host { height: 100%; }

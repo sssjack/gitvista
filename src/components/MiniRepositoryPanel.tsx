@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUp, Check, FileDiff, Layers3, Loader2, Maximize2, RefreshCw, Undo2, X } from 'lucide-react';
+import { ArrowLeft, ArrowUp, Check, FileDiff, GitCommitHorizontal, Loader2, Maximize2, RefreshCw, X } from 'lucide-react';
 import type { DesktopState, DiffResult, GitCommit, GitCommitFile, GitWorkingState, MiniAction, MiniQuery, PushPreview, RepoEntry } from '../../shared/types';
 import { useI18n } from '../lib/i18n';
 
@@ -68,7 +68,7 @@ export default function MiniRepositoryPanel({ state }: { state: DesktopState }) 
       ]);
       if (id !== generation.current) return;
       setWorking(status); setPreview(plan); setStale(false);
-      setSelected(current => new Set([...current].filter(path => status.files.some(file => file.path === path && file.unstaged && !file.conflict))));
+      setSelected(current => new Set([...current].filter(path => status.files.some(file => file.path === path && (file.staged || file.unstaged) && !file.conflict))));
     } catch (cause) { if (id === generation.current) setError(errorText(cause)); }
     finally { if (id === generation.current) setLoading(false); }
   }, [repo, tab]);
@@ -104,22 +104,28 @@ export default function MiniRepositoryPanel({ state }: { state: DesktopState }) 
         setNotice(t('推送已完成'));
         if (action.commitStaged) setMessage('');
       } else {
-        setNotice(t(action.type === 'stage' ? '已暂存所选文件' : '已取消暂存'));
-        setSelected(new Set()); await load();
+        setNotice(t('本地提交已完成，可前往推送预览上传。'));
+        setMessage(''); setSelected(new Set()); await load();
       }
     } catch (cause) {
       setError(errorText(cause) + (action.type === 'push' ? `\n${t('请重新读取推送内容后再执行；已完成的本地提交会保留。')}` : ''));
     } finally { mutating.current = false; setActing(false); }
   };
-  const unstaged = working.files.filter(file => file.unstaged), staged = working.files.filter(file => file.staged);
-  const selectable = unstaged.filter(file => !file.conflict);
+  const unstaged = working.files.filter(file => file.unstaged);
+  const changes = working.files.filter(file => file.staged || file.unstaged || file.conflict);
+  const selectable = changes.filter(file => !file.conflict);
+  const commitReady = !blocked && !error && !!selected.size && !!message.trim() && !working.operation && !working.files.some(file => file.conflict);
+  const commitSelected = () => {
+    if (!commitReady) return;
+    void run({ type: 'commit', message: message.trim(), commitFiles: selectable.filter(file => selected.has(file.path)).map(file => ({ path: file.path, source: file.unstaged ? 'workingTree' : 'index' })) });
+  };
   const pushFiles = preview?.stagedFiles || [];
   const ready = !blocked && !stale && !!(preview?.head && preview.indexTree && preview.branch && preview.remote && preview.target && preview.stagedFiles)
     && !working.operation && !working.files.some(file => file.conflict) && (!!preview.total || !!pushFiles.length) && (!pushFiles.length || !!message.trim());
   const switchTab = (next: 'changes' | 'push') => { if (!blocked) { setTab(next); setDiff(null); setNotice(''); setOutput(''); } };
 
   return <section className="mini-panel" aria-label={t('迷你仓库面板')}>
-    <header className="mini-panel-header"><Layers3 size={16} /><strong>GitVista</strong><span>{t('迷你横条')}</span>
+    <header className="mini-panel-header"><GitCommitHorizontal size={16} /><strong>GitVista</strong><span>{t('迷你横条')}</span>
       <button title={t('打开主窗口')} aria-label={t('打开主窗口')} disabled={busy} onClick={() => void api.desktopCommand('restore')}><Maximize2 size={14} /></button>
       <button ref={closeButton} title={t('收起面板')} aria-label={t('收起面板')} disabled={busy} onClick={() => void api.desktopCommand('closePanel')}><X size={16} /></button>
     </header>
@@ -127,7 +133,7 @@ export default function MiniRepositoryPanel({ state }: { state: DesktopState }) 
       {!repos.length && <option value="">{t('未发现 Git 仓库')}</option>}
       {repos.map(entry => <option key={entry.path} value={entry.path}>{repos.length > 1 ? entry.path.replace(state.repo, '').replace(/^[\\/]/, '') || entry.name : entry.name}</option>)}
     </select><button aria-label={t('刷新文件与预览')} title={t('刷新文件与预览')} disabled={blocked || !repo} onClick={() => { setNotice(''); setOutput(''); void load(); }}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button></div>
-    <nav className="mini-panel-tabs" aria-label={t('仓库操作')}><button aria-pressed={tab === 'changes'} disabled={blocked} onClick={() => switchTab('changes')}><Layers3 size={14} />{t('暂存更改')}</button><button aria-pressed={tab === 'push'} disabled={blocked} onClick={() => switchTab('push')}><ArrowUp size={14} />{t('推送预览')}</button></nav>
+    <nav className="mini-panel-tabs" aria-label={t('仓库操作')}><button aria-pressed={tab === 'changes'} disabled={blocked} onClick={() => switchTab('changes')}><GitCommitHorizontal size={14} />{t('快捷提交')}</button><button aria-pressed={tab === 'push'} disabled={blocked} onClick={() => switchTab('push')}><ArrowUp size={14} />{t('推送预览')}</button></nav>
     <div className="mini-panel-body" aria-busy={loading}>
       {error && <div className="mini-panel-error" role="alert">{error}</div>}
       {notice && <div className="mini-panel-notice" role="status"><Check size={14} />{notice}</div>}
@@ -140,13 +146,12 @@ export default function MiniRepositoryPanel({ state }: { state: DesktopState }) 
           <pre className="mini-diff-code">{diff.result.text ? diff.result.text.split('\n').map((line, index) => <span key={index} className={line.startsWith('+') ? 'added' : line.startsWith('-') ? 'removed' : ''}>{line || ' '}</span>) : t('没有差异')}</pre>
         </>}
       </div> : !repo ? <p className="mini-empty">{t('请先打开仓库')}</p> : tab === 'changes' ? <>
-        <div className="mini-section-heading"><strong>{t('未暂存')} <span>{unstaged.length}</span></strong><button disabled={blocked || !selectable.length} onClick={() => setSelected(selected.size === selectable.length ? new Set() : new Set(selectable.map(file => file.path)))}>{t(selected.size === selectable.length && selectable.length ? '取消全选' : '全选')}</button></div>
-        {unstaged.map(file => <div className="mini-file-row" key={file.path}><input type="checkbox" aria-label={`${t('暂存文件')} ${file.path}`} checked={selected.has(file.path)} disabled={blocked || file.conflict} onChange={event => setSelected(current => { const next = new Set(current); if (event.target.checked) next.add(file.path); else next.delete(file.path); return next; })} /><FileButton file={{ ...file, status: file.conflict ? 'U' : file.worktree.trim() || '?' }} disabled={busy} onClick={() => void viewDiff({ type: 'diff', path: file.path, oldPath: file.oldPath })} /></div>)}
-        {!unstaged.length && <p className="mini-empty">{t('工作区没有未暂存更改')}</p>}
-        <div className="mini-section-heading"><strong>{t('已暂存')} <span>{staged.length}</span></strong></div>
-        {staged.map(file => <div className="mini-file-row" key={file.path}><FileButton file={{ ...file, status: file.index.trim() || 'M' }} disabled={busy} onClick={() => void viewDiff({ type: 'diff', path: file.path, oldPath: file.oldPath, staged: true })} /><button className="mini-unstage" title={t('取消暂存文件')} aria-label={`${t('取消暂存文件')} ${file.path}`} disabled={blocked || file.conflict} onClick={() => void run({ type: 'unstage', paths: [file.path] })}><Undo2 size={13} /></button></div>)}
-        {!staged.length && <p className="mini-empty">{t('没有暂存文件')}</p>}
+        <div className="mini-section-heading"><strong>{t('待提交文件')} <span>{changes.length}</span></strong><button disabled={blocked || !selectable.length} onClick={() => setSelected(selected.size === selectable.length ? new Set() : new Set(selectable.map(file => file.path)))}>{t(selected.size === selectable.length && selectable.length ? '取消全选' : '全选')}</button></div>
+        {changes.map(file => <div className="mini-file-row" key={file.path}><input type="checkbox" aria-label={`${t('选择提交文件')} ${file.path}`} checked={selected.has(file.path)} disabled={blocked || file.conflict} onChange={event => { const checked = event.target.checked; setSelected(current => { const next = new Set(current); if (checked) next.add(file.path); else next.delete(file.path); return next; }); }} /><FileButton file={{ ...file, status: file.conflict ? 'U' : (file.unstaged ? file.worktree : file.index).trim() || '?' }} disabled={busy} onClick={() => void viewDiff({ type: 'diff', path: file.path, oldPath: file.oldPath, workingTree: file.unstaged, staged: !file.unstaged })} /><span className="mini-file-source">{t(file.unstaged ? '工作区版本' : '暂存版本')}</span></div>)}
+        {!changes.length && <p className="mini-empty">{t('没有待提交更改')}</p>}
+        {!!changes.length && <p className="mini-panel-hint">{t('有未暂存改动的文件提交工作区版本；其余文件提交暂存版本。点击文件可查看完整差异。')}</p>}
         {working.files.some(file => file.conflict) && <p className="mini-panel-error">{t('请在主窗口解决冲突后继续。')}</p>}
+        {!!working.operation && <p className="mini-panel-error">{t('请先在主窗口完成当前 Git 操作。')}</p>}
       </> : preview ? <>
         <div className="mini-push-target"><span>{preview.branch}</span><ArrowUp size={13} /><strong>{preview.remote}/{preview.target}</strong></div>
         <div className="mini-section-heading"><strong>{t('待推送提交')} <span>{preview.total}</span></strong></div>
@@ -162,7 +167,10 @@ export default function MiniRepositoryPanel({ state }: { state: DesktopState }) 
       </> : null}
     </div>
     {!diff && <footer className="mini-panel-footer">
-      {tab === 'changes' ? <><span>{t('已选择 {0} 个文件', selected.size)}</span><button className="mini-primary" disabled={blocked || !selected.size || !!error} onClick={() => void run({ type: 'stage', paths: [...selected] })}>{acting ? <Loader2 size={14} className="spin" /> : <Layers3 size={14} />}{t('暂存选中')}</button></> : <>
+      {tab === 'changes' ? <>
+        <label className="mini-message">{t('提交说明')}<textarea maxLength={50000} rows={2} value={message} disabled={blocked} placeholder={t('这次改动做了什么？')} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); commitSelected(); } }} /></label>
+        <span className="mini-commit-note">{t('已选择 {0} 个文件', selected.size)}<small>{t('仅提交到本地，不会自动推送')}</small></span><button className="mini-primary" title="Ctrl+Enter" disabled={!commitReady} onClick={commitSelected}>{acting ? <Loader2 size={14} className="spin" /> : <GitCommitHorizontal size={14} />}{t('提交所选文件')}</button>
+      </> : <>
         {!!pushFiles.length && <label className="mini-message">{t('提交说明')}<textarea maxLength={50000} rows={2} value={message} disabled={blocked} placeholder={t('这次改动做了什么？')} onChange={event => setMessage(event.target.value)} /></label>}
         <button className="mini-primary" disabled={!ready} onClick={() => { if (ready && preview) void run({ type: 'push', expectedHead: preview.head, expectedIndexTree: preview.indexTree!, remote: preview.remote, ref: preview.branch, name: preview.target, commitStaged: !!pushFiles.length, message: message.trim() }); }}>{acting ? <Loader2 size={14} className="spin" /> : <ArrowUp size={14} />}{t(pushFiles.length ? '提交并推送' : '推送这一份')}</button>
       </>}

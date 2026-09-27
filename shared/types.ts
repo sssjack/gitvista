@@ -31,18 +31,20 @@ export interface WorkspaceProgress { root: string; repo: string; operation: 'fet
 export interface WorkspaceBatch { operation: 'fetch' | 'pull' | 'push'; repos: string[]; planId?: string; message?: string }
 export type AppTheme = 'dark' | 'light' | 'midnight' | 'nord' | 'forest' | 'rose' | 'darcula' | 'deep';
 export type AppLanguage = 'en' | 'zh';
-export interface AppPreferences { language: AppLanguage; theme: AppTheme; gitPath: string; pullStrategy: 'ff-only' | 'merge' | 'rebase'; diffView: 'split' | 'unified'; codeFontSize: number; wordWrap: boolean }
-export const DEFAULT_PREFERENCES: AppPreferences = { language: 'en', theme: 'darcula', gitPath: 'git', pullStrategy: 'ff-only', diffView: 'split', codeFontSize: 12, wordWrap: false };
+export type CloseBehavior = 'ask' | 'tray' | 'quit';
+export type UiFontSize = 'small' | 'normal' | 'large' | 'extraLarge';
+export interface AppPreferences { language: AppLanguage; theme: AppTheme; gitPath: string; pullStrategy: 'ff-only' | 'merge' | 'rebase'; diffView: 'split' | 'unified'; codeFontSize: number; wordWrap: boolean; closeBehavior: CloseBehavior; uiFontSize: UiFontSize }
+export const DEFAULT_PREFERENCES: AppPreferences = { language: 'en', theme: 'darcula', gitPath: 'git', pullStrategy: 'ff-only', diffView: 'split', codeFontSize: 12, wordWrap: false, closeBehavior: 'ask', uiFontSize: 'normal' };
 export interface AppSettings extends AppPreferences { repos: RepoEntry[]; lastRepo?: string; }
 export interface IdentityFields { name: string; email: string }
 export interface GitIdentity { local: IdentityFields; global: IdentityFields; effective: IdentityFields }
 export interface GitIdentityUpdate extends IdentityFields { scope: 'local' | 'global' }
 export interface RepositoryCredentials { username: string; secret: string }
-export interface DesktopState { mode: 'main' | 'mini'; panel: 'changes' | 'push' | null; collapsed: boolean; expanded: boolean; direction: 'left' | 'right'; edge: 'left' | 'right' | 'top' | 'bottom' | null; frame: MiniFrame; repo: string; commits: GitCommit[]; busy: boolean; error: string; language: AppLanguage; theme: AppTheme }
+export interface DesktopState { mode: 'main' | 'mini'; panel: 'changes' | 'push' | null; collapsed: boolean; expanded: boolean; direction: 'left' | 'right'; edge: 'left' | 'right' | 'top' | 'bottom' | null; frame: MiniFrame; repo: string; commits: GitCommit[]; busy: boolean; error: string; language: AppLanguage; theme: AppTheme; uiFontSize: UiFontSize }
 export type DesktopCommand = 'mini' | 'tray' | 'restore' | 'refresh' | 'pull' | 'latest' | 'quit' | 'expand' | 'changes' | 'pushPreview' | 'closePanel';
 export interface MiniFrame { x: number; y: number; width: number; height: number }
 export type MiniQuery = GitQuery & { type: 'status' | 'pushPreview' | 'diff' | 'commitFiles' };
-export type MiniAction = { type: 'stage' | 'unstage'; paths: string[] } | { type: 'push'; expectedHead: string; expectedIndexTree: string; remote: string; ref: string; name: string; commitStaged: boolean; message: string };
+export type MiniAction = { type: 'commit'; commitFiles: CommitFileSelection[]; message: string } | { type: 'push'; expectedHead: string; expectedIndexTree: string; remote: string; ref: string; name: string; commitStaged: boolean; message: string };
 export interface MiniBarApi {
   repositories(context: string): Promise<RepoEntry[]>;
   query<T = unknown>(repo: string, query: MiniQuery): Promise<T>;
@@ -56,6 +58,7 @@ export interface GitVistaApi {
   settings(): Promise<AppSettings>;
   setTheme(theme: AppTheme): Promise<void>;
   updatePreferences(preferences: AppPreferences): Promise<AppSettings>;
+  onPreferencesChanged(listener: (preferences: AppPreferences) => void): () => void;
   browseGitPath(): Promise<string | null>;
   testGitPath(gitPath: string): Promise<{ version: string }>;
   getGitIdentity(repo: string): Promise<GitIdentity>;

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, GripVertical, Layers3, Maximize2, RefreshCw } from 'lucide-react';
+import { ArrowDown, ArrowUp, GripVertical, GitCommitHorizontal, Maximize2, RefreshCw } from 'lucide-react';
 import type { DesktopCommand, DesktopState } from '../../shared/types';
 import { useI18n } from '../lib/i18n';
 import './mini-bar.css';
@@ -18,7 +18,7 @@ export default function MiniBar({ state }: { state: DesktopState }) {
       <div className={`mini-grip ${state.error ? 'mini-error' : ''}`} title={state.error || t('拖动到屏幕边缘可自动收起')}><GripVertical size={13} /></div>
       <div className="mini-actions">
       <button aria-label={t('拉取更新')} title={t('拉取更新')} disabled={!state.repo || state.busy} onClick={() => command('pull')}><ArrowDown size={16} /></button>
-      <button aria-label={t('暂存更改')} title={t('暂存更改')} disabled={!state.repo || state.busy} onClick={() => command('changes')}><Layers3 size={16} /></button>
+      <button aria-label={t('快捷提交')} title={t('快捷提交')} disabled={!state.repo || state.busy} onClick={() => command('changes')}><GitCommitHorizontal size={16} /></button>
       <button aria-label={t('推送预览')} title={t('推送预览')} disabled={!state.repo || state.busy} onClick={() => command('pushPreview')}><ArrowUp size={16} /></button>
       <button aria-label={t('刷新')} title={t('刷新')} disabled={!state.repo || state.busy} onClick={() => command('refresh')}><RefreshCw size={15} className={state.busy ? 'spin' : ''} /></button>
       <button aria-label={t('打开主窗口')} title={t('打开主窗口')} onClick={() => command('restore')}><Maximize2 size={14} /></button>

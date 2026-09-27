@@ -4,6 +4,7 @@ import { Check, ChevronRight, Code2, FolderOpen, GitBranch, Languages, Loader2, 
 import { DEFAULT_PREFERENCES } from '../../shared/types';
 import type { AppPreferences, AppSettings, AppTheme, GitIdentity, IdentityFields } from '../../shared/types';
 import { useI18n } from '../lib/i18n';
+import { UI_FONT_OPTIONS, UI_FONT_SCALES } from '../lib/ui-font';
 
 export const THEMES: { value: AppTheme; name: string; detail: string; colors: string[] }[] = [
   { value: 'deep', name: '深黑', detail: '最深底色，接近 IDEA 深色', colors: ['#0b0c0e', '#121316', '#6f9fd8', '#6aa84f'] },
@@ -18,12 +19,12 @@ export const THEMES: { value: AppTheme; name: string; detail: string; colors: st
 const blankIdentity: GitIdentity = { local: { name: '', email: '' }, global: { name: '', email: '' }, effective: { name: '', email: '' } };
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 function preferencesOf(settings: AppSettings): AppPreferences {
-  return { language: settings.language, theme: settings.theme, gitPath: settings.gitPath, pullStrategy: settings.pullStrategy, diffView: settings.diffView, codeFontSize: settings.codeFontSize, wordWrap: settings.wordWrap };
+  return { language: settings.language, theme: settings.theme, gitPath: settings.gitPath, pullStrategy: settings.pullStrategy, diffView: settings.diffView, codeFontSize: settings.codeFontSize, wordWrap: settings.wordWrap, closeBehavior: settings.closeBehavior, uiFontSize: settings.uiFontSize };
 }
 
 export default function SettingsDialog({ settings, repo, onSaved, onClose }: { settings: AppSettings; repo: string; onSaved: (settings: AppSettings) => void; onClose: () => void }) {
   const { t } = useI18n();
-  const [tab, setTab] = useState<'git' | 'appearance'>('git');
+  const [tab, setTab] = useState<'general' | 'git' | 'appearance'>('general');
   const [draft, setDraft] = useState<AppPreferences>(() => preferencesOf(settings));
   const [fontInput, setFontInput] = useState(String(settings.codeFontSize)); const dialogRef = useRef<HTMLElement>(null);
   const [identity, setIdentity] = useState<GitIdentity | null>(null);
@@ -34,6 +35,7 @@ export default function SettingsDialog({ settings, repo, onSaved, onClose }: { s
   const [gitTest, setGitTest] = useState<{ path: string; version?: string; error?: string } | null>(null);
   const mounted = useRef(true); const currentRepo = useRef(repo); currentRepo.current = repo; const identityRequest = useRef(0); const pathRequest = useRef(0);
   const api = window.gitvista;
+  useEffect(() => { setDraft(current => ({ ...current, closeBehavior: settings.closeBehavior })); }, [settings.closeBehavior]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; ++identityRequest.current; ++pathRequest.current; }; }, []);
   useEffect(() => {
     const id = ++identityRequest.current; const requestRepo = repo; setIdentity(null); setIdentityError(''); setIdentityDrafts({ local: { ...blankIdentity.local }, global: { ...blankIdentity.global } });
@@ -78,9 +80,17 @@ export default function SettingsDialog({ settings, repo, onSaved, onClose }: { s
   return <div className="modal-backdrop settings-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
     <section ref={dialogRef} className="settings-dialog" role="dialog" aria-modal="true" aria-label={t('应用设置')}>
       <header className="settings-header"><div><span className="settings-brand"><Settings2 size={20} /></span><span><strong>{t('应用设置')}</strong><small>{t('打造顺手的 Git 工作环境')}</small></span></div><button type="button" className="icon-button" title={t('关闭设置')} aria-label={t('关闭设置')} onClick={onClose} disabled={!!busy}><X size={19} /></button></header>
-      <div className="settings-body"><nav className="settings-nav" aria-label={t('偏好设置')}><span>{t('偏好设置')}</span><button autoFocus className={tab === 'git' ? 'active' : ''} onClick={() => setTab('git')}><GitBranch size={16} /><span>{t('Git 与提交')}</span><ChevronRight size={12} /></button><button className={tab === 'appearance' ? 'active' : ''} onClick={() => setTab('appearance')}><Palette size={16} /><span>{t('外观与差异')}</span><ChevronRight size={12} /></button><div className="settings-nav-bottom"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>S</kbd><p>{t('随时打开设置')}</p></div></nav>
+      <div className="settings-body"><nav className="settings-nav" aria-label={t('偏好设置')}><span>{t('偏好设置')}</span><button autoFocus className={tab === 'general' ? 'active' : ''} onClick={() => setTab('general')}><Monitor size={16} /><span>{t('常规')}</span><ChevronRight size={12} /></button><button className={tab === 'git' ? 'active' : ''} onClick={() => setTab('git')}><GitBranch size={16} /><span>{t('Git 与提交')}</span><ChevronRight size={12} /></button><button className={tab === 'appearance' ? 'active' : ''} onClick={() => setTab('appearance')}><Palette size={16} /><span>{t('外观与差异')}</span><ChevronRight size={12} /></button><div className="settings-nav-bottom"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>S</kbd><p>{t('随时打开设置')}</p></div></nav>
         <div className="settings-content">
-          {tab === 'git' ? <>
+          {tab === 'general' ? <>
+            <div className="settings-page-title"><h2>{t('常规')}</h2><p>{t('设置窗口最小化与关闭时的行为。')}</p></div>
+            <section className="settings-section"><h3><Monitor size={15} />{t('窗口行为')}</h3>
+              <label className="form-field"><span>{t('点击关闭按钮时')}</span><SelectMenu label={t('点击关闭按钮时')} value={draft.closeBehavior} disabled={!!busy} onChange={value => setDraft(d => ({ ...d, closeBehavior: value as AppPreferences['closeBehavior'] }))} options={[{ value: 'ask', label: t('每次询问') }, { value: 'tray', label: t('隐藏到系统托盘') }, { value: 'quit', label: t('退出软件') }]} /></label>
+              <p className="settings-help">{t('“—”始终最小化到任务栏，可点击任务栏图标恢复窗口。')}</p>
+              <p className="settings-help">{t('隐藏到系统托盘后，软件会继续运行，可点击屏幕右下角的托盘图标打开。')}</p>
+              <p className="settings-help">{t('选择“每次询问”可恢复关闭时的提示。')}</p>
+            </section>
+          </> : tab === 'git' ? <>
             <div className="settings-page-title"><h2>{t('Git 与提交')}</h2><p>{t('连接本机 Git，设置提交身份与默认拉取方式。')}</p></div>
             <section className="settings-section"><h3><Package size={15} />{t('内置 Git')}</h3><div className="settings-bundled"><ShieldCheck size={15} /><span>{t('此版本内置 Git，无需单独安装。填写 git 会优先使用内置版本；也可以在下方指定本机已安装的 Git。')}</span></div></section>
             <section className="settings-section"><h3><Terminal size={15} />{t('Git 可执行文件')}</h3><label className="form-field"><span>{t('Git 路径')}</span><div className="settings-path"><input aria-label={t('Git 路径')} spellCheck={false} placeholder="git" value={draft.gitPath} onChange={e => changeGitPath(e.target.value)} disabled={!!busy} /><button className="secondary-button" type="button" disabled={!!busy} onClick={() => void browseGitPath()} title={t('浏览')}><FolderOpen size={14} />{t('浏览')}</button><button className="secondary-button" type="button" disabled={!!busy} onClick={() => void testGitPath()}>{busy === 'test' ? <Loader2 className="spin" size={14} /> : <Terminal size={14} />}{t('测试')}</button></div></label><p className="settings-help">{t('填写 git 使用系统 PATH，或选择 git.exe 的完整路径。保存后用于后续 Git 操作。')}</p>{gitTest && <div className={`settings-test ${gitTest.error ? 'failed' : 'success'}`}>{gitTest.error ? <X size={14} /> : <Check size={14} />}<span>{gitTest.error || gitTest.version}</span></div>}</section>
@@ -88,6 +98,12 @@ export default function SettingsDialog({ settings, repo, onSaved, onClose }: { s
             <section className="settings-section"><h3><GitBranch size={15} />{t('默认拉取策略')}</h3><label className="form-field"><span>{t('工具栏“拉取”使用')}</span><SelectMenu label={t('默认拉取策略')} value={draft.pullStrategy} disabled={!!busy} onChange={value => setDraft(d => ({ ...d, pullStrategy: value as AppPreferences['pullStrategy'] }))} options={[{ value: 'ff-only', label: t('仅快进（ff-only）') }, { value: 'merge', label: t('合并（merge）') }, { value: 'rebase', label: t('变基（rebase）') }]} /></label><p className="settings-help">{draft.pullStrategy === 'ff-only' ? t('仅在能够快进时更新；本地与远端分叉时停止，保留你的处理选择。') : draft.pullStrategy === 'merge' ? t('拉取后合并远端提交；存在分叉时可能生成合并提交。') : t('将本地提交重放到远端新提交之后；会改写这些本地提交的哈希。')}</p></section>
           </> : <>
             <div className="settings-page-title"><h2>{t('外观与差异')}</h2><p>{t('用熟悉的色彩与阅读方式，专注每一行变化。')}</p></div>
+            <section className="settings-section settings-ui-font"><h3><Monitor size={15} />{t('界面字号')}</h3>
+              <input className="settings-font-range" type="range" min="0" max="3" step="1" aria-label={t('界面字号')} aria-valuetext={t(UI_FONT_OPTIONS.find(option => option.value === draft.uiFontSize)!.label)} value={UI_FONT_OPTIONS.findIndex(option => option.value === draft.uiFontSize)} disabled={!!busy} onChange={event => setDraft(d => ({ ...d, uiFontSize: UI_FONT_OPTIONS[Number(event.target.value)].value }))} />
+              <div className="settings-font-labels">{UI_FONT_OPTIONS.map(option => <button key={option.value} type="button" aria-pressed={draft.uiFontSize === option.value} disabled={!!busy} onClick={() => setDraft(d => ({ ...d, uiFontSize: option.value }))}>{t(option.label)}</button>)}</div>
+              <div className="settings-ui-font-preview" style={{ fontSize: 14 * UI_FONT_SCALES[draft.uiFontSize] }}>{t('看清每一次变更 · GitVista 字号预览')}</div>
+              <p className="settings-help">{t('拖动选择四档字号，保存后应用于主窗口和迷你横条。代码字号仍可在下方单独设置。')}</p>
+            </section>
             <section className="settings-section"><h3><Languages size={15} />{t('界面语言')}</h3><label className="form-field"><span>{t('界面语言')}</span><SelectMenu label={t('界面语言')} value={draft.language} disabled={!!busy} onChange={value => setDraft(d => ({ ...d, language: value as AppPreferences['language'] }))} options={[{ value: 'en', label: t('英文') }, { value: 'zh', label: t('中文') }]} /></label><p className="settings-help">{t('切换界面语言，所有菜单与提示会立即更新。')}</p></section>
             <section className="settings-section"><h3><Palette size={15} />{t('界面主题')}</h3><div className="theme-grid" role="group" aria-label={t('界面主题')}>{THEMES.map(theme => <button className={`theme-card ${draft.theme === theme.value ? 'selected' : ''}`} key={theme.value} disabled={!!busy} aria-pressed={draft.theme === theme.value} onClick={() => setDraft(d => ({ ...d, theme: theme.value }))}><div className="theme-preview" style={{ background: theme.colors[0] }}><div style={{ background: theme.colors[1] }} /><span style={{ background: theme.colors[2] }} /><span style={{ background: theme.colors[3] }} /><i style={{ background: theme.colors[2] }} />{draft.theme === theme.value && <b style={{ background: theme.colors[2], color: theme.colors[0] }}><Check size={11} /></b>}</div><span>{t(theme.name)}</span><small>{t(theme.detail)}</small></button>)}</div></section>
             <section className="settings-section"><h3><Code2 size={15} />{t('代码阅读')}</h3><div className="settings-two-columns"><label className="form-field"><span>{t('默认差异视图')}</span><SelectMenu label={t('默认差异视图')} value={draft.diffView} disabled={!!busy} onChange={value => setDraft(d => ({ ...d, diffView: value as AppPreferences['diffView'] }))} options={[{ value: 'split', label: t('并排比较') }, { value: 'unified', label: t('统一比较') }]} /></label><label className="form-field"><span>{t('代码字号')}</span><div className="settings-number"><input aria-label={t('代码字号')} type="number" min="10" max="22" step="1" value={fontInput} disabled={!!busy} onChange={e => { setFontInput(e.target.value); const value = Number(e.target.value); if (Number.isInteger(value) && value >= 10 && value <= 22) setDraft(d => ({ ...d, codeFontSize: value })); }} onBlur={() => { const value = Math.max(10, Math.min(22, Math.round(Number(fontInput) || 12))); setFontInput(String(value)); setDraft(d => ({ ...d, codeFontSize: value })); }} /><span>px</span></div></label></div><label className="settings-toggle"><span><strong>{t('自动换行')}</strong><small>{t('长代码行在视图宽度内换行，减少横向滚动。')}</small></span><input type="checkbox" role="switch" aria-label={t('代码自动换行')} checked={draft.wordWrap} disabled={!!busy} onChange={e => setDraft(d => ({ ...d, wordWrap: e.target.checked }))} /></label><div className="settings-code-preview" style={{ fontSize: draft.codeFontSize, whiteSpace: draft.wordWrap ? 'pre-wrap' : 'pre' }}><span>01</span> <em>const</em> view = <b>'your code, in perspective'</b>;<br /><span>02</span> <em>return</em> changes.map(commit =&gt; commit.story);</div><p className="settings-help">{t('字号与换行同时作用于完整代码、差异和冲突编辑区；默认差异视图在保存时与下次启动时生效。')}</p></section>

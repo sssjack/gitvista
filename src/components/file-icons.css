@@ -48,7 +48,7 @@
 .git-file-status.git-file-conflict { color:var(--git-file-conflict); }
 
 .file-tree .file-tree-contents .tree-folder,
-.file-tree .file-tree-contents .tree-file { height:22px; min-height:22px; line-height:22px; padding-top:0; padding-bottom:0; font-size:12px !important; }
+.file-tree .file-tree-contents .tree-file { height:22px; min-height:22px; line-height:22px; padding-top:0; padding-bottom:0; font-size:calc(12px * var(--ui-font-scale, 1)) !important; }
 .file-tree .file-tree-contents .tree-file.git-file-added { color:var(--git-file-added); }
 .file-tree .file-tree-contents .tree-file.git-file-modified { color:var(--git-file-modified); }
 .file-tree .file-tree-contents .tree-file.git-file-deleted { color:var(--git-file-deleted); }

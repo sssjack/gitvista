@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type { DesktopState, MiniFrame } from '../shared/types';
 import MiniBar from './components/MiniBar';
 import { I18nProvider } from './lib/i18n';
+import { applyUiFontSize } from './lib/ui-font';
 import './styles.css';
 
 function MiniApp() {
@@ -11,6 +12,7 @@ function MiniApp() {
     const accept = (value: DesktopState) => {
       if (!value) return;
       document.documentElement.dataset.theme = value.theme;
+      applyUiFontSize(value.uiFontSize);
       frame(value.frame);
       setState(value);
     };

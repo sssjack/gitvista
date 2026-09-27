@@ -15,4 +15,4 @@
 .syntax-token.syntax-property{color:var(--syntax-property)}
 .syntax-token.syntax-constant{color:var(--syntax-constant)}
 .syntax-token.syntax-tag{color:var(--syntax-tag)}
-.syntax-limit-note{padding:8px 12px;color:var(--text-muted);font-size:11px}
+.syntax-limit-note{padding:8px 12px;color:var(--text-muted);font-size:calc(11px * var(--ui-font-scale, 1))}

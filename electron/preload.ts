@@ -4,6 +4,11 @@ const api: GitVistaApi = {
   settings: () => ipcRenderer.invoke('gv:settings'),
   setTheme: theme => ipcRenderer.invoke('gv:theme', theme),
   updatePreferences: preferences => ipcRenderer.invoke('gv:preferences', preferences),
+  onPreferencesChanged: listener => {
+    const handler = (_event: Electron.IpcRendererEvent, preferences: Parameters<typeof listener>[0]) => listener(preferences);
+    ipcRenderer.on('gv:preferences:changed', handler);
+    return () => ipcRenderer.removeListener('gv:preferences:changed', handler);
+  },
   browseGitPath: () => ipcRenderer.invoke('gv:git:browse'),
   testGitPath: gitPath => ipcRenderer.invoke('gv:git:test', gitPath),
   getGitIdentity: repo => ipcRenderer.invoke('gv:identity:get', repo),

@@ -5,6 +5,8 @@ import type { AppPreferences, AppSettings, AppTheme, RepoEntry } from '../shared
 export const APP_THEMES: AppTheme[] = ['deep', 'darcula', 'dark', 'light', 'midnight', 'nord', 'forest', 'rose'];
 const PULL_STRATEGIES = ['ff-only', 'merge', 'rebase'];
 const DIFF_VIEWS = ['split', 'unified'];
+const CLOSE_BEHAVIORS = ['ask', 'tray', 'quit'];
+const UI_FONT_SIZES = ['small', 'normal', 'large', 'extraLarge'];
 
 export function normalizeGitPath(value: unknown): string {
   if (typeof value !== 'string' || value.length > 8192 || /[\0\r\n]/.test(value)) throw new Error('Git 路径格式不正确。');
@@ -26,10 +28,14 @@ export function validatePreferences(value: unknown): AppPreferences {
     throw new Error('代码字号必须是 10 到 22 之间的整数。');
   }
   if (typeof source.wordWrap !== 'boolean') throw new Error('自动换行设置不正确。');
+  if (source.closeBehavior !== undefined && !CLOSE_BEHAVIORS.includes(source.closeBehavior as string)) throw new Error('不支持的窗口关闭方式。');
+  if (source.uiFontSize !== undefined && !UI_FONT_SIZES.includes(source.uiFontSize as string)) throw new Error('不支持的界面字号。');
   return {
     language: source.language === 'zh' ? 'zh' : 'en', theme: source.theme as AppTheme, gitPath: normalizeGitPath(source.gitPath),
     pullStrategy: source.pullStrategy as AppPreferences['pullStrategy'], diffView: source.diffView as AppPreferences['diffView'],
     codeFontSize: source.codeFontSize, wordWrap: source.wordWrap,
+    closeBehavior: source.closeBehavior as AppPreferences['closeBehavior'] ?? DEFAULT_PREFERENCES.closeBehavior,
+    uiFontSize: source.uiFontSize as AppPreferences['uiFontSize'] ?? DEFAULT_PREFERENCES.uiFontSize,
   };
 }
 
@@ -58,5 +64,7 @@ export function normalizeSettings(value: unknown): AppSettings {
     diffView: DIFF_VIEWS.includes(source.diffView as string) ? source.diffView as AppPreferences['diffView'] : DEFAULT_PREFERENCES.diffView,
     codeFontSize: typeof source.codeFontSize === 'number' && Number.isInteger(source.codeFontSize) && source.codeFontSize >= 10 && source.codeFontSize <= 22 ? source.codeFontSize : DEFAULT_PREFERENCES.codeFontSize,
     wordWrap: typeof source.wordWrap === 'boolean' ? source.wordWrap : DEFAULT_PREFERENCES.wordWrap,
+    closeBehavior: CLOSE_BEHAVIORS.includes(source.closeBehavior as string) ? source.closeBehavior as AppPreferences['closeBehavior'] : DEFAULT_PREFERENCES.closeBehavior,
+    uiFontSize: UI_FONT_SIZES.includes(source.uiFontSize as string) ? source.uiFontSize as AppPreferences['uiFontSize'] : DEFAULT_PREFERENCES.uiFontSize,
   };
 }
