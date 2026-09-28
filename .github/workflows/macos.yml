@@ -57,7 +57,11 @@ jobs:
             assert.match(await page.title(), /^GitVista/);
             const version = await page.evaluate(() => window.gitvista.testGitPath('git'));
             assert.match(version.version, /^git version /);
-            await page.evaluate(repo => window.gitvista.openRepository(repo, true), process.cwd());
+            await app.evaluate(({ dialog }, repo) => {
+              dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+            }, process.cwd());
+            const repository = await page.evaluate(() => window.gitvista.openRepository());
+            assert.ok(repository);
             await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
             await app.evaluate(({ app }) => app.emit('activate'));
             assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), true);
