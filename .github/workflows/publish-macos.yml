@@ -1,0 +1,74 @@
+name: Publish verified macOS packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run:
+        description: 'Successful macOS packages run ID to publish'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_RUN: ${{ inputs.build_run }}
+    steps:
+      - name: Require a successful macOS build from main
+        id: build
+        run: |
+          [[ "$BUILD_RUN" =~ ^[0-9]+$ ]]
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN" > run.json
+          jq -e '.conclusion == "success" and .head_branch == "main" and .path == ".github/workflows/macos.yml"' run.json
+          echo "sha=$(jq -r .head_sha run.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.build.outputs.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: GitVista-macOS-*
+          path: artifacts
+          merge-multiple: true
+          run-id: ${{ inputs.build_run }}
+          github-token: ${{ github.token }}
+      - name: Publish packages and checksums to the existing release
+        env:
+          SOURCE_SHA: ${{ steps.build.outputs.sha }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          gh release view "$TAG" --json isDraft --jq '.isDraft' | grep -qx false
+          mkdir publish
+          for ARCH in arm64 x64; do
+            for EXT in dmg zip; do
+              NAME="GitVista-$VERSION-macOS-$ARCH.$EXT"
+              FILE=$(find artifacts -name "$NAME" -type f)
+              test -f "$FILE"
+              cp "$FILE" "publish/$NAME"
+            done
+          done
+          (cd publish && sha256sum *.dmg *.zip > "GitVista-$VERSION-macOS-SHA256SUMS.txt")
+          gh release upload "$TAG" publish/*
+          gh release view "$TAG" --json body --jq .body > release-notes.md
+          cat >> release-notes.md <<EOF
+
+          ## macOS 发行包
+
+          新增 Apple Silicon（arm64 / M 系列）与 Intel（x64）DMG、ZIP，要求 macOS 13 或更新版本。打开 DMG 后将 GitVista.app 拖入「应用程序」。
+
+          Mac 版使用本机 Git；请先运行 \`git --version\`，尚未安装时运行 \`xcode-select --install\` 并完成安装，或使用 Homebrew 安装 Git。
+
+          使用 ad-hoc 签名，尚未经过 Apple Developer ID 签名及公证。首次打开若被拦截，确认来源后在「系统设置 → 隐私与安全性」选择「仍要打开」。
+
+          两种架构均在原生 macOS 环境通过签名完整性、DMG 校验、启动、Git 读取和 Dock 恢复验证。Mac 构建来源：$SOURCE_SHA；验证记录：https://github.com/$GH_REPO/actions/runs/$BUILD_RUN 。Windows 安装包保持原样。
+
+          SHA-256 校验值见 GitVista-$VERSION-macOS-SHA256SUMS.txt。
+          EOF
+          gh release edit "$TAG" --notes-file release-notes.md
