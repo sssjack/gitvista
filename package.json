@@ -17,9 +17,10 @@
     "prepackage:dir": "node scripts/fetch-mingit.mjs",
     "package": "npm run build && node scripts/package.mjs",
     "package:dir": "npm run build && node scripts/package.mjs --dir",
+    "package:mac": "npm run build && node scripts/package-mac.mjs",
     "postpackage": "npm run clean:artifacts",
     "postpackage:dir": "npm run clean:artifacts",
-    "clean:artifacts": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/cleanup-artifacts.ps1",
+    "clean:artifacts": "node scripts/cleanup-artifacts.mjs",
     "install:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-local.ps1",
     "validation:run": "node scripts/validation-run.mjs"
   },
@@ -59,17 +60,22 @@
         "portable"
       ],
       "icon": "assets/icon.ico",
-      "signExecutable": false
+      "signExecutable": false,
+      "extraResources": [{ "from": "vendor/mingit", "to": "git" }]
     },
     "portable": {
       "artifactName": "GitVista-${version}-Windows-x64.exe"
     },
-    "extraResources": [
-      {
-        "from": "vendor/mingit",
-        "to": "git"
-      }
-    ],
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.developer-tools",
+      "icon": "assets/icon.png",
+      "artifactName": "GitVista-${version}-macOS-${arch}.${ext}",
+      "minimumSystemVersion": "13.0",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "notarize": false
+    },
     "afterSign": "scripts/installation-manifest.mjs",
     "nsis": {
       "artifactName": "GitVista-${version}-Setup-x64.exe",

@@ -6,6 +6,9 @@ import { CopyElevateHelper } from 'app-builder-lib/out/targets/nsis/nsisUtil.js'
 
 // afterSign runs after Electron's version/icon edits, even when code signing is disabled.
 export default async function installationManifest({ appOutDir, packager, targets = [], electronPlatformName }) {
+  // This ownership manifest is only consumed by the Windows installer/cleanup scripts.
+  // macOS frameworks contain required symlinks and must remain intact after signing.
+  if (electronPlatformName !== 'win32') return;
   if (electronPlatformName === 'win32') {
     // electron-builder 26.15.3 otherwise adds resources/elevate.exe *after* afterSign,
     // immediately before NSIS compression. Use its shared helper/cache now so the

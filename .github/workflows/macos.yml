@@ -1,0 +1,75 @@
+name: macOS packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/macos.yml'
+      - 'electron/**'
+      - 'src/**'
+      - 'shared/**'
+      - 'assets/**'
+      - 'scripts/**'
+      - 'package*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run package:mac -- --${{ matrix.arch }}
+      - name: Verify package and launch on native macOS
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          APP=$(find release/macos-* -name GitVista.app -maxdepth 2 -type d | head -1)
+          codesign --verify --deep --strict "$APP"
+          hdiutil verify release/macos-*/*.dmg
+          export APP_EXECUTABLE="$PWD/$APP/Contents/MacOS/GitVista"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { _electron } from 'playwright';
+          const env = { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin' };
+          delete env.ELECTRON_RUN_AS_NODE;
+          const app = await _electron.launch({ executablePath: process.env.APP_EXECUTABLE, env, timeout: 60000 });
+          try {
+            const page = await app.firstWindow();
+            await page.waitForLoadState('domcontentloaded');
+            assert.equal(await app.evaluate(() => process.arch), process.env.EXPECTED_ARCH);
+            assert.match(await page.title(), /^GitVista/);
+            const version = await page.evaluate(() => window.gitvista.testGitPath('git'));
+            assert.match(version.version, /^git version /);
+            await page.evaluate(repo => window.gitvista.openRepository(repo, true), process.cwd());
+            await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
+            await app.evaluate(({ app }) => app.emit('activate'));
+            assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), true);
+            assert.equal(await app.evaluate(({ Menu }) => !!Menu.getApplicationMenu()), true);
+            console.log('Native macOS launch, system Git, repository read, menu and Dock restore passed.');
+          } finally { await app.close(); }
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GitVista-macOS-${{ matrix.arch }}
+          path: |
+            release/macos-*/*.dmg
+            release/macos-*/*.zip
+          if-no-files-found: error
+          retention-days: 14

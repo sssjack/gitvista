@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, Tray, screen } from 'electron';
+import { BrowserWindow, Menu, Tray, screen, nativeImage } from 'electron';
 import path from 'node:path';
 import type { AppSettings, DesktopCommand, DesktopState, GitLogResult, MiniFrame } from '../shared/types';
 import { translate } from '../shared/messages';
@@ -90,7 +90,10 @@ export class DesktopCompanion {
     return this.miniWindow;
   }
   constructor(private mainWindow: BrowserWindow, private createMiniWindow: () => BrowserWindow, private dependencies: Dependencies) {
-    this.tray = new Tray(path.join(__dirname, '../assets/icon.ico'));
+    const trayIcon = process.platform === 'win32'
+      ? path.join(__dirname, '../assets/icon.ico')
+      : nativeImage.createFromPath(path.join(__dirname, '../assets/icon.png')).resize({ width: 18, height: 18 });
+    this.tray = new Tray(trayIcon);
     this.tray.on('click', () => this.restore());
     this.tray.on('double-click', () => this.restore());
     this.tray.on('right-click', () => this.publish());

@@ -384,8 +384,8 @@ function installHandlers() {
   });
   handle('gv:git:browse', async () => {
     const result = await dialog.showOpenDialog(window!, {
-      title: msg('选择 Git for Windows 程序'), properties: ['openFile'],
-      filters: [{ name: msg('Git 程序（git.exe）'), extensions: ['exe'] }],
+      title: msg('选择 Git 程序'), properties: ['openFile'],
+      ...(process.platform === 'win32' ? { filters: [{ name: msg('Git 程序（git.exe）'), extensions: ['exe'] }] } : {}),
     });
     return result.canceled ? null : result.filePaths[0] || null;
   });
@@ -542,7 +542,9 @@ else {
   });
   app.on('will-quit', () => { companion?.dispose(); clearCredentials(); clearInterval(resourceTimer); for (const controller of readRequests.values()) controller.abort(); readRequests.clear(); git.cancelReadQueries(); });
   app.whenReady().then(async () => {
-    Menu.setApplicationMenu(null);
+    Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([
+      { role: 'appMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+    ]) : null);
     await maintainRuntimeCache().catch(error => console.warn('缓存维护已跳过：', String(error)));
     resourceTimer = setInterval(() => { pruneSessionMetadata(); void resourceUsage().catch(() => {}); }, 10 * 60_000);
     resourceTimer.unref();
@@ -596,7 +598,7 @@ else {
       },
       quit: () => app.quit(),
     });
-    app.on('activate', () => { if (!window) void createWindow(); });
+    app.on('activate', () => { if (!window) void createWindow(); else companion?.restore(); });
   }).catch(error => { dialog.showErrorBox(msg('GitVista 无法启动'), String(error)); app.quit(); });
   app.on('window-all-closed', () => { app.quit(); });
 }

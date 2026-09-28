@@ -73,6 +73,7 @@ async function verify(directory) {
 }
 
 async function main() {
+  if (process.platform !== 'win32') return;
   const force = process.argv.includes('--force');
 
   if (!force && await exists(vendor) && await exists(stampFile)) {

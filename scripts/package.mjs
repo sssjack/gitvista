@@ -5,6 +5,11 @@ import path from 'node:path';
 import { windowsPowerShellEnvironment } from './windows-powershell.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
+if (process.platform === 'darwin') {
+  await import('./package-mac.mjs');
+  process.exit(0);
+}
+if (process.platform !== 'win32') throw new Error('目前仅支持 Windows 与 macOS 打包。');
 const stage = path.join(root, 'release', `.build-${randomUUID()}`);
 function run(command, args) {
   return new Promise((resolve, reject) => {

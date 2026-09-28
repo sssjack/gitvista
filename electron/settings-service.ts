@@ -12,8 +12,8 @@ export function normalizeGitPath(value: unknown): string {
   if (typeof value !== 'string' || value.length > 8192 || /[\0\r\n]/.test(value)) throw new Error('Git 路径格式不正确。');
   const candidate = value.trim() || 'git';
   if (candidate === 'git') return candidate;
-  if (!path.isAbsolute(candidate) || path.basename(candidate).toLowerCase() !== 'git.exe') {
-    throw new Error('请输入 git，或 git.exe 的完整绝对路径；不能附带命令参数。');
+  if (!path.isAbsolute(candidate) || path.basename(candidate).toLowerCase() !== (process.platform === 'win32' ? 'git.exe' : 'git')) {
+    throw new Error('请输入 git，或 Git 可执行文件的完整绝对路径；不能附带命令参数。');
   }
   return path.normalize(candidate);
 }

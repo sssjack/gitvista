@@ -154,7 +154,7 @@ export async function testGitExecutable(value: string): Promise<{ version: strin
   }
   const result = await run(process.cwd(), ['--version'], { executable, timeout: 10_000, maxOutput: 64 * 1024 });
   const version = result.stdout.trim();
-  if (!/^git version \d+\.\d+[^\r\n]*$/.test(version)) throw new Error('所选程序没有返回有效的 Git 版本，请选择 Git for Windows 的 git.exe。');
+  if (!/^git version \d+\.\d+[^\r\n]*$/.test(version)) throw new Error('所选程序没有返回有效的 Git 版本，请选择有效的 Git 可执行文件。');
   return { version };
 }
 

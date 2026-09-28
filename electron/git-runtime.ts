@@ -18,12 +18,16 @@ export function setBundledGit(directory: string) { bundled = directory; }
 export function setBundledGitPreferred(value: boolean) { preferBundled = value; }
 
 function bundledCandidates(): string[] {
-  if (!bundled) return [];
+  if (!bundled || process.platform !== 'win32') return [];
   // MinGit 解包后可能是 cmd/git.exe，也可能被压平到根目录，两种布局都探测。
   return [path.join(bundled, 'cmd', 'git.exe'), path.join(bundled, 'bin', 'git.exe'), path.join(bundled, 'git.exe')];
 }
 
 function systemCandidates(): string[] {
+  if (process.platform !== 'win32') {
+    return [...(process.env.PATH || '').split(path.delimiter).filter(directory => path.isAbsolute(directory)).map(directory => path.join(directory, 'git')),
+      '/opt/homebrew/bin/git', '/usr/local/bin/git', '/usr/bin/git'];
+  }
   const candidates: string[] = [];
   for (const root of [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs'), process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Git')]) {
     if (root) candidates.push(path.join(root, 'Git', 'cmd', 'git.exe'), path.join(root, 'cmd', 'git.exe'));
@@ -36,6 +40,7 @@ function systemCandidates(): string[] {
  * 因为 execFileSync 会阻塞主进程，不能放进正常的解析路径里。
  */
 function registryCandidates(): string[] {
+  if (process.platform !== 'win32') return [];
   const candidates: string[] = [];
   for (const key of ['HKCU\\Software\\GitForWindows', 'HKLM\\Software\\GitForWindows', 'HKLM\\Software\\WOW6432Node\\GitForWindows']) {
     try {
@@ -79,6 +84,7 @@ export async function resolveGit(value: string): Promise<string> {
 
   let fromPath: string[] = [];
   try {
+    if (process.platform !== 'win32') throw new Error('Use POSIX PATH candidates.');
     const stdout = await new Promise<string>((resolve, reject) => {
       execFile('where.exe', ['git.exe'], { windowsHide: true, timeout: 3000, encoding: 'utf8' }, (error, out) => {
         if (error) reject(error); else resolve(String(out));
@@ -94,6 +100,7 @@ export async function resolveGit(value: string): Promise<string> {
     if (fallback) return fallback;
   }
 
+  if (process.platform === 'darwin') throw new Error('未找到 Git。请先在终端运行 xcode-select --install 安装命令行工具，或安装 Homebrew Git，然后重新打开 GitVista。');
   throw new Error(bundled && !existsSync(bundled)
     ? 'No usable Git was found. This build did not bundle Git; install Git for Windows, or choose git.exe in settings.'
     : '找不到可用的 Git，请修复应用安装或在设置中选择 Git 程序。');
@@ -101,6 +108,9 @@ export async function resolveGit(value: string): Promise<string> {
 
 export function gitEnvironment(executable: string): NodeJS.ProcessEnv {
   if (!path.isAbsolute(executable)) return process.env;
+  if (process.platform !== 'win32') {
+    return { ...process.env, PATH: [path.dirname(executable), process.env.PATH || '', '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'].filter(Boolean).join(path.delimiter) };
+  }
   // MinGit 的 git.exe 位于 cmd/，配套命令在 mingw64/bin 与 usr/bin，必须补进 PATH。
   const root = path.resolve(path.dirname(executable), '..');
   const bins = [path.dirname(executable), path.join(root, 'mingw64', 'bin'), path.join(root, 'usr', 'bin')];
