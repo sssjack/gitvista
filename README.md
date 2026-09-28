@@ -4,15 +4,15 @@
 
 **看清每一次变更，再放心按下提交。**
 
-一个面向 Windows 的 Git 桌面工作台。看修改、查历史、管多个仓库，忙的时候还能缩成桌面上的一小条。
+一个面向 Windows 和 macOS 的 Git 桌面工作台。看修改、查历史、管多个仓库，忙的时候还能缩成桌面上的一小条。
 
-**内置 Git · 多仓库工作区 · 先预览再推送 · 迷你快捷提交 · 中文 / English · 12 套主题**
+**Windows 内置 Git · 多仓库工作区 · 先预览再推送 · 迷你快捷提交 · 中文 / English · 12 套主题**
 
 [🌐 官网](https://sssjack.github.io/gitvista/) · [⬇️ 下载安装包](https://github.com/sssjack/gitvista/releases/latest) · [为什么用它](#为什么用它) · [开始使用](#开始使用) · [能力边界](#能力边界)
 
 [![Release](https://img.shields.io/github/v/release/sssjack/gitvista?label=release&color=3f5fd4)](https://github.com/sssjack/gitvista/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-3f5fd4)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20x64-3f5fd4)](#能力边界)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-3f5fd4)](#能力边界)
 
 </div>
 
@@ -26,7 +26,7 @@
 
 **它解决什么？** 你可能也遇到过：改了几个项目，终端开了八个，最后不记得自己到底推了哪一个。GitVista 专门收拾这类"小事很多、切来切去"的日常。
 
-**装起来麻烦吗？** 不麻烦。内置 Git，不装 Node、不配环境、不用注册账号，下载双击就能用。
+**装起来麻烦吗？** Windows 包内置 Git；Mac 版使用已安装的命令行工具或 Homebrew Git。两者都不需要 Node.js 或注册账号。
 
 **要钱吗？** 不要。MIT 开源，想怎么用怎么用。
 
@@ -45,7 +45,7 @@
 | 能力 | **GitVista** | GitHub Desktop | Sourcetree | GitKraken | Fork | TortoiseGit |
 | --- | --- | --- | --- | --- | --- | --- |
 | 价格 / 授权 | ✅ **免费 · MIT 开源** | 免费 | 免费 | 免费版 + 付费档 | 付费，有试用 | 免费开源 |
-| 内置 Git，免装免配 | ✅ **内置 MinGit 2.47.1，可切回系统 Git** | 内置但隐藏 | 常需手动指向外部 Git | 倾向用系统 Git | 用系统 Git | 需自行装 Git for Windows |
+| 内置 Git，免装免配 | ✅ **Windows 内置 MinGit 2.47.1；macOS 使用本机 Git** | 内置但隐藏 | 常需手动指向外部 Git | 倾向用系统 Git | 用系统 Git | 需自行装 Git for Windows |
 | 多仓库统一工作区 | ✅ **打开父目录自动发现，按仓库报结果** | ✗ | ✗ | ◐ 部分 | ✗ | ✗ |
 | 推送前逐项预览 | ✅ **列提交 + 暂存内容，内容变了要重确认** | ◐ | ✗ | ◐ | ◐ | ✗ |
 | 桌面迷你快捷入口 | ✅ **快捷提交 / 拉取 / 推送预览，可磁吸收起** | ✗ | ✗ | ✗ | ✗ | ✗ |
@@ -54,7 +54,7 @@
 | 大仓库分页与内存预算 | ✅ **分页 + 可见区渲染 + 取消过期读取** | ◐ | ◐ | ◐ | ◐ | ✗ |
 | 公开资源占用实测报告 | ✅ **含测试机配置、场景、采样方法与局限性** | ✗ | ✗ | ✗ | ✗ | ✗ |
 | 代码审查 / PR / Issue 集成 | ✗ 专注本地 Git | ✅ | ◐ | ✅ | ◐ | ✗ |
-| Linux / macOS | ✗ 当前仅 Windows x64 | ✅ | ✅ | ✅ | ✅ | ✗ |
+| Linux / macOS | ◐ macOS 支持 Apple Silicon / Intel；暂无 Linux | ✅ | ✅ | ✅ | ✅ | ✗ |
 
 ✅ 支持 · ◐ 部分支持或需额外条件 · ✗ 不支持
 
@@ -80,10 +80,12 @@
 | --- | ---: | --- |
 | [**安装版** `GitVista-0.9.8-Setup-x64.exe`](https://github.com/sssjack/gitvista/releases/download/v0.9.8/GitVista-0.9.8-Setup-x64.exe) | 121 MiB | **推荐。** 有安装向导，可选安装目录，自动建桌面快捷方式 |
 | [**便携版** `GitVista-0.9.8-Windows-x64.exe`](https://github.com/sssjack/gitvista/releases/download/v0.9.8/GitVista-0.9.8-Windows-x64.exe) | 121 MiB | 放 U 盘带走，或不想动注册表 |
+| [**Mac · Apple Silicon** `GitVista-0.9.8-macOS-arm64.dmg`](https://github.com/sssjack/gitvista/releases/download/v0.9.8/GitVista-0.9.8-macOS-arm64.dmg) | 122.07 MiB | M 系列芯片，macOS 13 或更新版本 |
+| [**Mac · Intel** `GitVista-0.9.8-macOS-x64.dmg`](https://github.com/sssjack/gitvista/releases/download/v0.9.8/GitVista-0.9.8-macOS-x64.dmg) | 127.31 MiB | Intel 芯片，macOS 13 或更新版本 |
 
 [查看全部版本](https://github.com/sssjack/gitvista/releases) · [官网](https://sssjack.github.io/gitvista/)
 
-> 两个包都内置 Git，**装完就能用，不需要先装 Git for Windows。**
+> 两个 Windows 包都内置 Git，**装完就能用，不需要先装 Git for Windows。**
 >
 > 便携包启动时要解压一次，日常频繁使用更推荐安装版——便携不是"零磁盘占用"的魔法，它只是少了一步安装。
 
@@ -95,7 +97,13 @@
 
 ### 路线一：直接下载（推荐）
 
-从上面的 [下载安装](#下载安装) 拿到安装器，双击，选好目录，下一步到底。默认建议装到 `D:\LenovoSoftstore\GitVista`，装完桌面会有 **GitVista** 快捷方式。
+**Windows：** 从上面的 [下载安装](#下载安装) 拿到安装器，双击，选好目录，下一步到底。默认建议装到 `D:\LenovoSoftstore\GitVista`，装完桌面会有 **GitVista** 快捷方式。
+
+**macOS：** 在「关于本机」查看芯片，选择 Apple Silicon（M 系列）或 Intel 包。打开 DMG，将 **GitVista.app** 拖入 **Applications / 应用程序**，再从应用程序启动。Release 同时提供 ZIP 包。
+
+Mac 版需要 Git：先在终端运行 `git --version`。尚未安装时运行 `xcode-select --install` 并完成系统安装，或使用已有的 Homebrew 执行 `brew install git`。应用会查找系统 Git、`/opt/homebrew/bin/git` 和 `/usr/local/bin/git`，也可在设置里指定路径。
+
+首次打开若提示开发者无法验证，请确认安装包来自本仓库，在「系统设置 → 隐私与安全性」选择「仍要打开」。本版只有 ad-hoc 签名，未经过 Apple 公证；参见 [Apple 打开应用说明](https://support.apple.com/zh-cn/102445)。
 
 ### 路线二：从源码自己打包
 
@@ -120,6 +128,16 @@ npm run install:local
 本地安装脚本默认使用 `D:\LenovoSoftstore\GitVista\<版本号>`。先复制到临时安装目录并校验，再更新正式目录和固定桌面入口；安装成功后清理安全可删除的旧版。旧版仍在运行或目录中有用户额外文件时，会保留并记录原因。
 
 **同一台机器请选一种安装方式持续更新。** 安装器和本地安装脚本服务于不同使用场景，不建议交替覆盖同一个目录。打开新版前，先从托盘退出旧版，避免单实例机制又把旧窗口带回来。
+
+Mac 构建需要 macOS 13+、Node.js 22.12+ 和命令行工具：
+
+```sh
+npm ci
+npm run package:mac              # Apple Silicon + Intel，DMG 和 ZIP
+npm run package:mac -- --arm64   # 只构建 Apple Silicon；Intel 用 --x64
+```
+
+成功产物位于 `release/macos-<版本>-<构建标识>/`，不同构建分别保留。GitHub Actions 的 [macOS packages](https://github.com/sssjack/gitvista/actions/workflows/macos.yml) 会在两种芯片的原生 macOS 环境中构建并验证启动。Windows 的安装和清理脚本仅用于 Windows。
 
 ## 日常怎么用
 
@@ -166,8 +184,8 @@ npm run install:local
 
 ### 5. 需要时展开，忙起来收好
 
-- 标题栏 **—**：最小化到 Windows 任务栏。
-- 标题栏 **×**：默认询问退出或隐藏到右下角托盘，可记住选择。
+- 标题栏 **—**：最小化到 Windows 任务栏或 macOS Dock。
+- 标题栏 **×**：默认询问退出或隐藏到系统托盘（macOS 为菜单栏），可记住选择。
 - **设置 → 常规**：以后想改关闭行为，随时回来改。
 - **Mini bar / 迷你横条**：第一次使用时才创建，悬停展开，靠近屏幕边缘可磁吸收起。
 - **只留托盘时**：暂停自动历史刷新；恢复窗口时重新读取。单仓库工作台长时间隐藏后，会释放已读取的历史、差异和源码数据，保留筛选位置和提交草稿。
@@ -219,7 +237,8 @@ npm run dev
 | `npm run typecheck` | 检查 TypeScript 类型 |
 | `npm run build` | 构建前端和 Electron 主进程 |
 | `npm run package:dir` | 生成可直接运行的解压程序 |
-| `npm run package` | 生成 Windows x64 安装器和便携包 |
+| `npm run package` | 在 Windows 生成安装器和便携包；在 Mac 生成双架构 DMG / ZIP |
+| `npm run package:mac -- --arm64` | 在 Mac 上生成 Apple Silicon 包（Intel 使用 `--x64`） |
 | `npm run install:local` | 安装到本机并更新桌面快捷方式 |
 | `npm run clean:artifacts` | 安全清理项目构建及验证产物 |
 | `npm run validation:run -- <分组> node <本地脚本>` | 在带归属标记的目录中运行本地验证 |
@@ -232,7 +251,7 @@ npm run clean:artifacts -- -WhatIf
 
 安装脚本支持 `-KeepOldVersions` 与 `-SkipArtifactCleanup`；清理脚本支持调整保留数量。测试脚本和测试目录只保留在本地，不提交到 Git。新的验证脚本应将临时仓库、截图和浏览器配置放在 `GITVISTA_VALIDATION_DIR` 下。
 
-打包会获取并验证 MinGit 2.47.1。已有可用版本会复用；下载或构建失败不会替换上一份成功产物。发布包只带应用构建结果与运行所需文件，不夹带开发用的整套 `node_modules`。
+Windows 打包会获取并验证 MinGit 2.47.1；macOS 不携带 Windows Git，使用本机 Git。已有可用版本会复用；下载或构建失败不会替换上一份成功产物。发布包只带应用构建结果与运行所需文件，不夹带开发用的整套 `node_modules`。
 
 ### 代码在哪里
 
@@ -248,7 +267,8 @@ npm run clean:artifacts -- -WhatIf
 
 说得清楚一点，省得你下载完才发现不合适。
 
-- 当前主要面向 **Windows x64**；Linux / macOS 还没有。
+- 支持 **Windows x64** 和 **macOS 13+（Apple Silicon / Intel）**；暂无 Linux 发行包。
+- macOS 包使用临时签名（ad-hoc），尚未经过 Apple Developer ID 签名及公证；首次打开可能需要在「系统设置 → 隐私与安全性」允许打开。
 - 它是 Git 工作台，**不是 IDE**，也不是完整的代码编辑器。
 - 完整历史源码主要用于阅读，实际编辑入口集中在冲突处理。
 - 单文件文本读取有 4 MiB 限制；大差异会截断并提示，分页并不取消安全上限。
