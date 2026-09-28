@@ -17,6 +17,8 @@
 <meta name="twitter:card" content="summary_large_image" />
 <link rel="icon" href="assets/icon.png" />
 <link rel="stylesheet" href="assets/style.css" />
+<link rel="stylesheet" href="assets/download-menu.css" />
+<script src="assets/download-menu.js" defer></script>
 <script>
 // 在首屏绘制前套用主题，避免刷新时闪一下另一种配色。
 // 默认深色；用户点过切换按钮后以 localStorage 为准。
@@ -56,10 +58,16 @@
         <path d="M20.5 14.2A8.6 8.6 0 0 1 9.8 3.5a8.6 8.6 0 1 0 10.7 10.7z" />
       </svg>
     </button>
-    <a class="nav-cta" href="#download">
+    <details class="download-picker"><summary class="nav-cta">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/></svg>
       下载
-    </a>
+    </summary><div class="download-options">
+  <p class="download-options-label">选择你的电脑版本</p>
+  <a href="https://github.com/sssjack/gitvista/releases/download/v0.9.8/GitVista-0.9.8-Setup-x64.exe"><strong>Windows</strong><small>Windows 10 / 11 · x64 安装版</small></a>
+  <a href="https://github.com/sssjack/gitvista/releases/download/v0.9.8/GitVista-0.9.8-macOS-arm64.dmg"><strong>Mac · Apple Silicon</strong><small>M 系列芯片 · macOS 13+</small></a>
+  <a href="https://github.com/sssjack/gitvista/releases/download/v0.9.8/GitVista-0.9.8-macOS-x64.dmg"><strong>Mac · Intel</strong><small>Intel 芯片 · macOS 13+</small></a>
+  <a class="download-all" href="#download">全部下载与安装说明 →</a>
+</div></details>
   </div>
 </header>
 
@@ -75,10 +83,16 @@
         GitVista 是一个面向 Windows 和 macOS 的 Git 桌面工作台，专门解决这类「小事很多、切来切去」的日常。
       </p>
       <div class="hero-actions">
-        <a class="btn btn-primary" href="#download">
+        <details class="download-picker"><summary class="btn btn-primary">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/></svg>
           下载 Windows / Mac 版
-        </a>
+        </summary><div class="download-options">
+  <p class="download-options-label">选择你的电脑版本</p>
+  <a href="https://github.com/sssjack/gitvista/releases/download/v0.9.8/GitVista-0.9.8-Setup-x64.exe"><strong>Windows</strong><small>Windows 10 / 11 · x64 安装版</small></a>
+  <a href="https://github.com/sssjack/gitvista/releases/download/v0.9.8/GitVista-0.9.8-macOS-arm64.dmg"><strong>Mac · Apple Silicon</strong><small>M 系列芯片 · macOS 13+</small></a>
+  <a href="https://github.com/sssjack/gitvista/releases/download/v0.9.8/GitVista-0.9.8-macOS-x64.dmg"><strong>Mac · Intel</strong><small>Intel 芯片 · macOS 13+</small></a>
+  <a class="download-all" href="#download">全部下载与安装说明 →</a>
+</div></details>
         <a class="btn btn-ghost" href="#compare">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
           与其他客户端对比
