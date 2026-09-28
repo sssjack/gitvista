@@ -268,6 +268,95 @@ body, .nav, .card, .panel, .chip, .btn, .dl-item, footer, .table-scroll, table.c
 .hero-shot { margin-top: 56px; width: 100%; }
 .hero-shot-wrap { position: relative; }
 
+/* 可点击放大：角标挂在 figure 上（<img> 是替换元素，伪元素不可靠），
+   只在鼠标悬停或键盘聚焦时出现，不干扰静态排版 */
+.shot.js-zoomable { position: relative; }
+.js-zoomable img { cursor: zoom-in; }
+.js-zoomable::after {
+  content: "点击放大"; position: absolute; top: 10px; right: 10px; z-index: 3;
+  padding: 4px 10px; border-radius: 999px; font-size: 11.5px; letter-spacing: .02em;
+  background: var(--panel); color: var(--text-muted); border: 1px solid var(--border);
+  opacity: 0; transition: opacity .18s;
+}
+.js-zoomable:hover::after, .js-zoomable:focus-within::after { opacity: 1; }
+.js-zoomable img:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* ---------------------------------------------------------------- 截图查看器 */
+.lb {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; flex-direction: column;
+  background: #07080bf2; backdrop-filter: blur(3px);
+  opacity: 0; transition: opacity .18s;
+}
+.lb[hidden] { display: none; }
+.lb.is-open { opacity: 1; }
+/* 顶部工具栏：计数器 / 标题在左，缩放与关闭在右 */
+.lb-bar {
+  flex: none; display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; color: var(--text);
+}
+.lb-count { font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.lb-title {
+  font-size: 13.5px; font-weight: 560;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lb-cap { font-size: 12.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-spacer { flex: 1 1 auto; min-width: 8px; }
+
+.lb-btn {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 36px; height: 34px; padding: 0 11px;
+  border-radius: 8px; border: 1px solid #ffffff2e; background: #ffffff1a;
+  color: #e8eaf0; font: inherit; font-size: 12.5px; cursor: pointer;
+  transition: background .16s, border-color .16s;
+}
+.lb-btn:hover { background: #ffffff2e; border-color: #ffffff4d; }
+.lb-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lb-btn:disabled { opacity: .35; cursor: default; background: #ffffff1a; border-color: #ffffff1f; }
+
+/* 舞台：点击图片外的区域即关闭，所以这一层自己接了点击。
+   左右各留出箭头的跑道，否则图会顶到边、被箭头压住内容 */
+.lb-stage {
+  flex: 1 1 auto; min-height: 0; position: relative;
+  display: grid; place-items: center; overflow: auto;
+  padding: 0 86px 14px;
+}
+/* 图片尺寸用视口单位定，而不是百分比：
+   舞台是滚动容器，百分比宽度会先被 padding（给箭头留的跑道）和工具栏高度吃掉，
+   结果图比能显示的小一圈。这里直接按视口算，图片吃到撑。 */
+.lb-img {
+  display: block; width: auto; height: auto; cursor: default;
+  max-width: calc(100vw - 180px);
+  max-height: calc(100vh - 110px);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg); background: var(--panel-soft);
+  margin: auto;
+}
+/* 原始像素模式：图片撑到自身尺寸，由 .lb-stage 出滚动条 */
+.lb.is-actual .lb-img { max-width: none; max-height: none; }
+.lb.is-actual .lb-cap { display: none; }
+.lb-cap { flex: none; padding: 0 14px 12px; text-align: center; }
+
+.lb-nav {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 1;
+  width: 44px; height: 68px; padding: 0; border-radius: 10px;
+}
+.lb-prev { left: 14px; }
+.lb-next { right: 14px; }
+.lb-ico { width: 22px; height: 22px; }
+
+@media (max-width: 760px) {
+  .lb-bar { flex-wrap: wrap; }
+  .lb-count { order: 3; width: 100%; }
+  /* 竖屏时把箭头收到图片下方，别压住截图内容 */
+  .lb-nav {
+    position: static; transform: none; width: 46px; height: 40px; border-radius: 8px;
+  }
+  /* 箭头不再悬浮，左右跑道收回去给图片，上限也跟着放宽 */
+  .lb-stage { padding: 0 10px; }
+  .lb-img { max-width: calc(100vw - 20px); max-height: calc(100vh - 150px); }
+  .lb-cap { padding-bottom: 8px; }
+}
+
 /* ---------------------------------------------------------------- 卡片网格 */
 .grid { display: grid; gap: 16px; }
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
